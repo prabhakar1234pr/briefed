@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280,height=720">
+<title>Briefed Copilot</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    width: 1280px; height: 720px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .agent-name {
+    font-size: 28px; font-weight: 600; letter-spacing: 0.5px;
+    color: #ffffff; margin-bottom: 12px;
+  }
+  .status {
+    font-size: 16px; color: #888; margin-bottom: 24px;
+    transition: color 0.3s;
+  }
+  .status.listening { color: #4ade80; }
+  .status.thinking  { color: #facc15; }
+  .status.speaking  { color: #60a5fa; }
+  .status.error     { color: #f87171; }
+  .indicator {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: #1e1e2e; border: 2px solid #333;
+    margin-bottom: 20px; position: relative;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .indicator.speaking {
+    border-color: #60a5fa;
+    box-shadow: 0 0 20px rgba(96,165,250,0.4);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 20px rgba(96,165,250,0.3); }
+    50% { box-shadow: 0 0 40px rgba(96,165,250,0.6); }
+  }
+  .transcript-line {
+    font-size: 14px; color: #666; max-width: 800px;
+    text-align: center; margin-top: 16px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+</style>
+</head>
+<body>
+
+<div class="indicator" id="indicator"></div>
+<div class="agent-name" id="agentName">Briefed</div>
+<div class="status listening" id="status">Listening...</div>
+<div class="transcript-line" id="lastLine"></div>
+<div class="transcript-line" id="debugLine" style="color:#555; font-size:11px; margin-top:8px;"></div>
+
+<script>
+// ─── Config ─────────────────────────────────────────────────────────────────
+const P = new URLSearchParams(location.search);
+const MEETING_ID = P.get('meeting_id') || '';
+const AGENT_ID   = P.get('agent_id')   || '';
+const BACKEND_WS = P.get('backend_ws') || '';
+const AGENT_NAME = P.get('agent_name') || 'Briefed';
+
+document.getElementById('agentName').textContent = AGENT_NAME;
+
+const statusEl    = document.getElementById('status');
+const indicatorEl = document.getElementById('indicator');
+const lastLineEl  = document.getElementById('lastLine');
+const debugEl     = document.getElementById('debugLine');
+
+function dbg(msg) { debugEl.textContent = msg; console.log('[dbg]', msg); }
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className = 'status ' + cls;
+  indicatorEl.className = 'indicator ' + cls;
+}
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+dbg('v8-server-tts | ' + AGENT_NAME);
+
+// ─── Trigger regex ──────────────────────────────────────────────────────────
+const namePattern = new RegExp(
+  '(?:hey\\s+|ok\\s+|okay\\s+|@)?(?<![a-z])' + escapeRegex(AGENT_NAME.toLowerCase()) + '(?![a-z])\\s*[,:]?\\s*(.+)', 'i'
+);
+
+// ─── State ──────────────────────────────────────────────────────────────────
+let isProcessing = false;
+let copilotWs = null;
+const QA_COOLDOWN_MS = 8000;
+let lastTriggerAt = 0;
+let transcriptBuffer = '';
+let transcriptSpeaker = '';
+let transcriptTimer = null;
+const TRANSCRIPT_BUFFER_MS = 1800;
+
+// ─── Backend WebSocket ──────────────────────────────────────────────────────
+// Audio is handled server-side (TTS + Recall inject_audio API).
+// This WS only receives text tokens for visual display.
+function fireTrigger(question) {
+  if (isProcessing) return;
+  if (Date.now() - lastTriggerAt < QA_COOLDOWN_MS) return;
+
+  isProcessing = true;
+  lastTriggerAt = Date.now();
+  setStatus('Thinking...', 'thinking');
+
+  const wsUrl = BACKEND_WS + '/ws/copilot/' + MEETING_ID;
+  copilotWs = new WebSocket(wsUrl);
+
+  copilotWs.onopen = () => {
+    dbg('Q: ' + question.slice(0, 60));
+    lastLineEl.textContent = 'Q: ' + question;
+    copilotWs.send(JSON.stringify({
+      type: 'trigger', question: question, agent_id: AGENT_ID,
+    }));
+  };
+
+  let fullResponse = '';
+
+  copilotWs.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'token' && msg.text) {
+        fullResponse += msg.text + ' ';
+        lastLineEl.textContent = 'A: ' + fullResponse.slice(-80);
+        // First token = backend is speaking
+        if (!indicatorEl.classList.contains('speaking')) {
+          setStatus('Speaking...', 'speaking');
+        }
+      } else if (msg.type === 'done') {
+        dbg('Done, ' + fullResponse.length + ' chars');
+        isProcessing = false;
+        // Keep "Speaking..." until audio finishes on the meeting side;
+        // go back to listening after a delay based on text length
+        const estimatedSpeakMs = Math.max(3000, fullResponse.length * 60);
+        setTimeout(() => {
+          if (!isProcessing) setStatus('Listening...', 'listening');
+        }, estimatedSpeakMs);
+      } else if (msg.type === 'error') {
+        dbg('Error: ' + msg.message);
+        isProcessing = false;
+        setStatus('Error', 'error');
+      }
+    } catch (e) { dbg('parse: ' + e); }
+  };
+
+  copilotWs.onerror = () => {
+    dbg('WS error');
+    isProcessing = false;
+    setStatus('Connection error', 'error');
+    setTimeout(() => setStatus('Listening...', 'listening'), 3000);
+  };
+  copilotWs.onclose = () => {
+    if (isProcessing) { isProcessing = false; setStatus('Listening...', 'listening'); }
+  };
+}
+
+function interruptCopilot() {
+  if (copilotWs && copilotWs.readyState === WebSocket.OPEN) {
+    copilotWs.send(JSON.stringify({ type: 'interrupt' }));
+  }
+  isProcessing = false;
+  setStatus('Listening...', 'listening');
+}
+
+// ─── Transcript processing ──────────────────────────────────────────────────
+function processTranscriptBuffer() {
+  const fullText = transcriptBuffer.trim();
+  transcriptBuffer = '';
+  transcriptSpeaker = '';
+  transcriptTimer = null;
+  if (!fullText || isProcessing) return;
+
+  // Screenshot detection — visual feedback only (webhook handles actual capture)
+  const screenshotPhrases = ['take a screenshot', 'screenshot please', 'grab a screenshot', 'capture screen'];
+  if (screenshotPhrases.some(p => fullText.toLowerCase().includes(p))) {
+    dbg('Screenshot detected — webhook handling');
+    setStatus('Taking screenshot...', 'thinking');
+    setTimeout(() => { if (!isProcessing) setStatus('Listening...', 'listening'); }, 6000);
+    return;
+  }
+
+  // Q&A trigger — agent name detection
+  const match = namePattern.exec(fullText.toLowerCase());
+  if (match && match[1]) {
+    const question = match[1].trim();
+    if (question.length >= 5) {
+      dbg('TRIGGER: ' + question.slice(0, 60));
+      fireTrigger(question);
+    }
+  }
+}
+
+// ─── Recall transcript WebSocket ────────────────────────────────────────────
+function initTranscript() {
+  const ws = new WebSocket('wss://meeting-data.bot.recall.ai/api/v1/transcript');
+
+  ws.onopen = () => {
+    setStatus('Listening...', 'listening');
+    lastLineEl.textContent = 'Connected';
+    dbg('transcript connected');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const raw = JSON.parse(event.data);
+      const inner = raw.transcript || raw.data || raw;
+      const words = inner.words || [];
+      const text = words.map(w => (typeof w === 'string' ? w : w.text || '')).join(' ').trim();
+      const speaker = (inner.participant || inner.speaker || {}).name || 'Unknown';
+      const isFinal = inner.is_final === true || raw.is_final === true;
+
+      if (!text) return;
+      lastLineEl.textContent = speaker + ': ' + text;
+
+      if (speaker.toLowerCase() === AGENT_NAME.toLowerCase()) return;
+
+      // Barge-in
+      if (isProcessing) {
+        interruptCopilot();
+        return;
+      }
+
+      if (transcriptSpeaker && transcriptSpeaker !== speaker && transcriptBuffer) {
+        processTranscriptBuffer();
+      }
+
+      transcriptSpeaker = speaker;
+      transcriptBuffer = text;
+
+      if (isFinal) {
+        if (transcriptTimer) { clearTimeout(transcriptTimer); transcriptTimer = null; }
+        processTranscriptBuffer();
+      } else {
+        if (transcriptTimer) clearTimeout(transcriptTimer);
+        transcriptTimer = setTimeout(() => processTranscriptBuffer(), TRANSCRIPT_BUFFER_MS);
+      }
+    } catch (e) { dbg('transcript: ' + e); }
+  };
+
+  ws.onclose = () => { dbg('transcript reconnecting...'); setTimeout(initTranscript, 3000); };
+  ws.onerror = () => dbg('transcript error');
+}
+
+// ─── Init ───────────────────────────────────────────────────────────────────
+if (!MEETING_ID || !BACKEND_WS) {
+  setStatus('Missing configuration', 'error');
+} else {
+  initTranscript();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+name: Deploy backend to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend-fastapi/**"
+      - ".github/workflows/deploy-backend-cloud-run.yml"
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: backend-fastapi
+  REGION: us-central1
+  PROJECT_ID: briefed-app-prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run backend tests
+        working-directory: backend-fastapi
+        run: uv sync --extra dev && uv run pytest tests -v
+
+      # Requires repo secret GCP_SA_KEY (full JSON key). Fork PRs do not get secrets.
+      - name: Ensure GCP_SA_KEY secret is set
+        shell: bash
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          if [ -z "$GCP_SA_KEY" ]; then
+            echo "::error::Add repository secret GCP_SA_KEY (JSON key for a GCP service account with Cloud Run + Cloud Build deploy permissions)."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --source=./backend-fastapi \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --allow-unauthenticated \
+            --service-account=briefed-backend@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
+            --update-env-vars=GCP_PROJECT=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }} \
+            --quiet

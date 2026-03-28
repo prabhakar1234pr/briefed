@@ -1,0 +1,30 @@
+[project]
+name = "backend-fastapi"
+version = "0.1.0"
+description = "Briefed backend - AI meeting intelligence"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "httpx",
+  "PyJWT",
+  "cryptography",
+  "supabase",
+  "google-cloud-aiplatform>=1.60.0",
+  "google-cloud-texttospeech>=2.16.0",
+  "vertexai",
+  "google-genai>=1.0.0",
+  "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]
+addopts = "-q"
