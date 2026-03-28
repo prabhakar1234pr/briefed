@@ -502,7 +502,7 @@ async def process_copilot_trigger(
 
                 # Track timing for next sentence's playback wait
                 last_inject_at = time.perf_counter()
-                last_audio_duration = len(mp3) / 16000.0 + 0.8  # MP3 128kbps estimate + buffer
+                last_audio_duration = len(mp3) / 12000.0 + 1.0  # MP3 128kbps estimate + buffer
 
                 log.info("sentence_spoken",
                          meeting_id=meeting_id, n=sentence_n,
@@ -1011,7 +1011,7 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
 
                         await inject_audio(bot_id, mp3)
                         last_inject_at = time.perf_counter()
-                        last_audio_duration = len(mp3) / 16000.0 + 0.8
+                        last_audio_duration = len(mp3) / 12000.0 + 1.0
                     except Exception as tts_err:
                         log.warning("ws_tts_error", meeting_id=meeting_id, n=sentence_n,
                                     error=str(tts_err)[:100])

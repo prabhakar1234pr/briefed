@@ -158,12 +158,16 @@ async def answer_question_streaming(
         "- Use contractions (it's, don't, we're) — you're speaking, not writing an essay.\n"
         "- You're in a professional meeting. Read the room from the transcript — match the formality level of the conversation.\n\n"
 
-        "FORMAT RULES (critical — your output becomes audio):\n"
+        "FORMAT RULES (critical — your output is read aloud by text-to-speech):\n"
         "- Plain sentences only. NO bullet points, numbered lists, markdown, headers, or special formatting.\n"
         "- NO parenthetical asides or bracketed text.\n"
+        "- NEVER use special characters: no !, no *, no #, no @, no &, no (, no ), no [, no ], no {, no }.\n"
+        "- Use periods and commas only for punctuation. Use question marks for questions.\n"
         "- Spell out abbreviations and acronyms on first use unless they've already been used in the meeting.\n"
         "- Numbers: say 'fifteen thousand' not '15,000'. Say 'twenty percent' not '20%'.\n"
-        "- Don't say 'quote' or 'unquote' — just paraphrase naturally.\n\n"
+        "- Symbols: say 'and' not '&'. Say 'at' not '@'. Say 'dollars' not '$'.\n"
+        "- Don't say 'quote' or 'unquote' — just paraphrase naturally.\n"
+        "- Write exactly how you want it spoken. The TTS engine reads every character literally.\n\n"
 
         "ACCURACY & GROUNDING:\n"
         "- Your primary source of truth is the KNOWLEDGE BASE provided below. This contains verified project documentation, specs, and context.\n"
@@ -542,11 +546,18 @@ async def text_to_speech_mp3(
     Uses a cached client to avoid re-init overhead on every call."""
     from google.cloud import texttospeech  # type: ignore
 
-    log.debug("tts_start", chars=len(text), voice=voice_name)
+    # Sanitize text for TTS — strip chars that get read literally
+    import re as _re
+    clean = text
+    clean = _re.sub(r'[*#@&\[\]{}()<>|\\~`^]', '', clean)  # remove special chars
+    clean = clean.replace('!', '.').replace(';', ',')  # replace ! with period, ; with comma
+    clean = _re.sub(r'\s+', ' ', clean).strip()  # collapse whitespace
+
+    log.debug("tts_start", chars=len(clean), voice=voice_name)
     client = _get_tts_client()
 
     def _run() -> bytes:
-        synthesis_input = texttospeech.SynthesisInput(text=text[:4096])
+        synthesis_input = texttospeech.SynthesisInput(text=clean[:4096])
         voice = texttospeech.VoiceSelectionParams(
             language_code="-".join(voice_name.split("-")[:2]),
             name=voice_name,
