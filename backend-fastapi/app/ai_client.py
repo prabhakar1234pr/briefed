@@ -435,27 +435,31 @@ async def fact_check(
     system = (
         f"You are {agent_name}, a fact-checking assistant in a live corporate meeting. "
         "The knowledge base contains verified project documentation. "
-        "Your job is to catch clear factual errors — statements that directly contradict "
-        "the verified knowledge base. You speak corrections aloud to the room. "
+        "Your job is to catch factual errors and inaccuracies — statements that contradict "
+        "or misrepresent information in the verified knowledge base. You speak corrections aloud to the room. "
         "Be helpful and diplomatic — you're correcting a colleague, not an opponent."
     )
 
     prompt = (
         "A participant in the meeting just said the following:\n\n"
         f'STATEMENT: "{statement}"\n\n'
-        f"VERIFIED KNOWLEDGE BASE:\n{context_block[:6000]}\n\n"
-        "TASK: Does this statement contain a clear factual error that contradicts the knowledge base?\n\n"
+        f"VERIFIED KNOWLEDGE BASE:\n{context_block[:8000]}\n\n"
+        "TASK: Does this statement contain ANY factual inaccuracy when compared against the knowledge base?\n\n"
+        "CHECK FOR:\n"
+        "- Wrong numbers, dates, percentages, or statistics\n"
+        "- Wrong names, titles, roles, or attributions\n"
+        "- Incorrect technical facts or specifications\n"
+        "- Misrepresented timelines, milestones, or deadlines\n"
+        "- Confused or swapped details (e.g. saying X when the knowledge base says Y)\n"
+        "- Claims about education, experience, or background that don't match the knowledge base\n\n"
         "RULES:\n"
-        "- Only flag CLEAR, OBJECTIVE contradictions — wrong numbers, wrong dates, wrong names, wrong facts.\n"
-        "- Do NOT flag: opinions, predictions, subjective assessments, approximations, or rounding.\n"
-        "- Do NOT flag: statements about topics not covered in the knowledge base.\n"
-        "- Do NOT flag: minor imprecisions that don't materially change the meaning.\n"
-        "- When in doubt, do NOT flag. False corrections are worse than missed errors.\n\n"
+        "- If the knowledge base has the correct info and the statement gets it wrong, flag it.\n"
+        "- Do NOT flag opinions or predictions.\n"
+        "- Do NOT flag topics not covered in the knowledge base at all.\n\n"
         "Return ONLY valid JSON (no markdown fences):\n"
         '{"contradicts": true/false, "correction": "spoken correction or null"}\n\n'
         "If contradicts is true, write the correction as a natural spoken sentence for the room. "
-        "Be diplomatic: 'Actually, the correct figure is...' not 'That's wrong'. "
-        "Keep it brief — one to two sentences max."
+        "Be diplomatic: 'Actually, according to our records...' — keep it brief, one to two sentences."
     )
 
     raw = await generate_text(prompt, system=system, max_tokens=2048,

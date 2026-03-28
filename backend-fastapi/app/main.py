@@ -422,7 +422,15 @@ async def process_copilot_trigger(
                         log.info("screenshot_saved", meeting_id=meeting_id, path=path)
                 except Exception as e:
                     log.exception("screenshot_upload_failed", meeting_id=meeting_id, error=str(e))
-            reply = "Screenshot saved." if b64 else "Screenshot unavailable."
+            if b64:
+                reply = "Screenshot saved."
+            else:
+                # Check if output_media mode — screenshots not supported there
+                m_mode = db.table("meetings").select("copilot_mode").eq("id", meeting_id).limit(1).execute()
+                is_om = (m_mode.data or [{}])[0].get("copilot_mode") == "output_media"
+                reply = ("Screenshots aren't available in Output Media mode. "
+                         "I can answer questions about what's being discussed instead."
+                         if is_om else "I wasn't able to capture a screenshot right now. Please try again.")
             mp3 = await text_to_speech_mp3(reply, voice_id)
             await inject_audio(bot_id, mp3)
             db.table("meeting_interactions").insert({
