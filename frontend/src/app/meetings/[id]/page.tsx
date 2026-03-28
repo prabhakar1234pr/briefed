@@ -112,6 +112,7 @@ export default async function MeetingDetailPage({ params }: Props) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <a href={`/share/${meeting.id}`} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ fontSize: 13, padding: "6px 14px" }}>Share brief</a>
             {meeting.video_url && <a href={meeting.video_url} target="_blank" rel="noopener noreferrer" className="btn-secondary">↓ Video</a>}
             {meeting.audio_url && <a href={meeting.audio_url} target="_blank" rel="noopener noreferrer" className="btn-secondary">↓ Audio</a>}
           </div>
