@@ -51,6 +51,8 @@ _agent_cache: dict[str, tuple[dict[str, Any], float]] = {}
 _AGENT_CACHE_TTL = 300.0
 
 _trigger_active: dict[str, bool] = {}
+_runtime_warm_lock = asyncio.Lock()
+_runtime_warmed = False
 
 MIN_CHARS_FACT    = 42
 
@@ -64,6 +66,28 @@ def _get_cached_agent(agent_id: str) -> dict[str, Any] | None:
 
 def _set_cached_agent(agent_id: str, agent: dict[str, Any]) -> None:
     _agent_cache[agent_id] = (agent, time.monotonic())
+
+
+async def _prewarm_copilot_runtime(voice_id: str) -> None:
+    """Warm expensive first-use clients so first spoken response is faster."""
+    global _runtime_warmed
+    if _runtime_warmed:
+        return
+    async with _runtime_warm_lock:
+        if _runtime_warmed:
+            return
+        try:
+            from app.ai_client import embed_text, thinking_acknowledgement
+
+            await asyncio.gather(
+                thinking_acknowledgement(voice_id),
+                embed_text(["briefed runtime warmup"]),
+            )
+            _runtime_warmed = True
+            log.info("copilot_runtime_warmed")
+        except Exception as e:
+            # Warmup is best-effort; never fail meeting flow.
+            log.warning("copilot_runtime_warm_failed", error=str(e)[:160])
 
 
 # ─── App lifespan ─────────────────────────────────────────────────────────────
@@ -852,7 +876,7 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
       ← {"type":"done"}
       → {"type":"interrupt"} to cancel mid-stream
     """
-    from app.ai_client import answer_question_streaming, text_to_speech_mp3
+    from app.ai_client import answer_question_streaming, text_to_speech_mp3, thinking_acknowledgement
     from app.context_pipeline import search_context
     from app.output_media import inject_audio
 
@@ -912,10 +936,25 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
                 voice_id = raw_voice or "en-US-Neural2-J"
             interrupted = False
 
-            # Parallel: context search + recent transcript
+            # Best-effort runtime warmup to reduce first-trigger latency.
+            asyncio.create_task(_prewarm_copilot_runtime(voice_id))
+
+            async def _search_context_fast() -> list[str]:
+                try:
+                    # Avoid waiting too long on cold embedding startup.
+                    return await asyncio.wait_for(search_context(agent_id, question, top_k=3), timeout=3.0)
+                except TimeoutError:
+                    log.warning("ws_context_timeout", meeting_id=meeting_id, timeout_s=3.0)
+                    return []
+                except Exception as e:
+                    log.warning("ws_context_error", meeting_id=meeting_id, error=str(e)[:120])
+                    return []
+
+            # Parallel: quick ACK TTS + context search + recent transcript
             t0 = time.perf_counter()
-            context_chunks, recent_transcript = await asyncio.gather(
-                search_context(agent_id, question, top_k=3),
+            ack_mp3, context_chunks, recent_transcript = await asyncio.gather(
+                thinking_acknowledgement(voice_id),
+                _search_context_fast(),
                 _fetch_recent_transcript(db, meeting_id, limit=20),
             )
             log.info("ws_gather_done",
@@ -923,11 +962,15 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
                      context_chunks=len(context_chunks),
                      elapsed_ms=int((time.perf_counter() - t0) * 1000))
 
-            # Stream Gemini → collect all sentences → single TTS + inject
-            # Per-sentence injection caused overlap because MP3 duration
-            # estimation is unreliable. One TTS call = one continuous
-            # audio block = zero overlap, guaranteed.
+            # Inject immediate acknowledgement so the room hears the bot instantly.
+            if bot_id:
+                await inject_audio(bot_id, ack_mp3)
+
+            # Stream Gemini and speak sentence-by-sentence for low first-audio latency.
             response_parts: list[str] = []
+            last_inject_at: float = 0.0
+            last_audio_duration: float = 0.0
+            sentence_n = 0
 
             async for sentence in answer_question_streaming(
                 question=question,
@@ -946,20 +989,24 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
                 # Send text to bot page for visual display (streams live)
                 await websocket.send_json({"type": "token", "text": sentence})
                 response_parts.append(sentence)
+                sentence_n += 1
 
-            # TTS the full response as one block → inject once
-            if response_parts and not interrupted and bot_id:
-                full_text = " ".join(response_parts)
-                try:
-                    mp3 = await text_to_speech_mp3(full_text, voice_id)
-                    await inject_audio(bot_id, mp3)
-                    log.info("ws_audio_injected",
-                             meeting_id=meeting_id,
-                             chars=len(full_text),
-                             mp3_kb=round(len(mp3) / 1024, 1))
-                except Exception as tts_err:
-                    log.warning("ws_tts_error", meeting_id=meeting_id,
-                                error=str(tts_err)[:100])
+                if bot_id:
+                    try:
+                        mp3 = await text_to_speech_mp3(sentence, voice_id)
+
+                        if last_inject_at > 0:
+                            elapsed_since_inject = time.perf_counter() - last_inject_at
+                            remaining_playback = last_audio_duration - elapsed_since_inject
+                            if remaining_playback > 0:
+                                await asyncio.sleep(remaining_playback)
+
+                        await inject_audio(bot_id, mp3)
+                        last_inject_at = time.perf_counter()
+                        last_audio_duration = len(mp3) / 16000.0 + 0.25
+                    except Exception as tts_err:
+                        log.warning("ws_tts_error", meeting_id=meeting_id, n=sentence_n,
+                                    error=str(tts_err)[:100])
 
             await websocket.send_json({"type": "done"})
 

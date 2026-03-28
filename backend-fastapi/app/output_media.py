@@ -6,9 +6,12 @@ Performance: uses a persistent httpx.AsyncClient (connection pooling)
 to avoid TCP+TLS handshake on every inject_audio call.
 """
 import base64
+import asyncio
+import inspect
 import logging
 from functools import lru_cache
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -87,59 +90,127 @@ async def take_screenshot(bot_id: str) -> str | None:
     Returns base64 JPEG string or None.
     """
     create_url = f"{_api_base()}/api/v1/bot/{bot_id}/screenshots/"
+    retrieve_url = f"{_api_base()}/api/v1/bot/{bot_id}/screenshots/{{screenshot_id}}/"
+
+    def _extract_inline_b64(payload: Any) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+        return (
+            payload.get("data")
+            or payload.get("screenshot")
+            or payload.get("b64_data")
+            or payload.get("image")
+        )
+
+    def _normalize_items(payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [x for x in payload if isinstance(x, dict)]
+        if isinstance(payload, dict):
+            if isinstance(payload.get("results"), list):
+                return [x for x in payload["results"] if isinstance(x, dict)]
+            return [payload]
+        return []
+
+    def _latest_item(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not items:
+            return None
+        # Recall timestamps are ISO8601. We prefer the newest recorded_at value.
+        def _ts(it: dict[str, Any]) -> datetime:
+            raw = str(it.get("recorded_at") or "")
+            try:
+                return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except Exception:
+                return datetime.min.replace(tzinfo=timezone.utc)
+        return max(items, key=_ts)
+
+    async def _from_item(item: dict[str, Any], client: httpx.AsyncClient) -> str | None:
+        inline = _extract_inline_b64(item)
+        if inline:
+            return inline
+
+        img_url = item.get("url") or item.get("image_url")
+        if isinstance(img_url, str) and img_url.strip():
+            img_r = await client.get(img_url.strip())
+            if img_r.is_success:
+                return base64.standard_b64encode(img_r.content).decode("ascii")
+
+        sid = item.get("id")
+        if sid:
+            r_detail = await client.get(
+                retrieve_url.format(screenshot_id=sid),
+                headers=_headers(),
+            )
+            if r_detail.is_success:
+                detail = r_detail.json()
+                detail_b64 = _extract_inline_b64(detail)
+                if detail_b64:
+                    return detail_b64
+                detail_url = (detail or {}).get("url")
+                if isinstance(detail_url, str) and detail_url.strip():
+                    img_r = await client.get(detail_url.strip())
+                    if img_r.is_success:
+                        return base64.standard_b64encode(img_r.content).decode("ascii")
+        return None
+
+    async def _json_body(response: Any) -> Any:
+        """Handle both httpx.Response.json() and async-mocked json() in tests."""
+        body = response.json()
+        if inspect.isawaitable(body):
+            return await body
+        return body
+
     try:
         client = _get_recall_client()
+        started_at = datetime.now(timezone.utc)
 
         # Step 1: Create a screenshot request
         r = await client.post(create_url, json={}, headers=_headers())
-        if not r.is_success:
-            logger.warning("take_screenshot create HTTP %d: %s",
-                           r.status_code, r.text[:300])
-            # Fallback: try GET on the list endpoint to grab the latest
-            r = await client.get(create_url, headers=_headers())
-            if not r.is_success:
-                logger.warning("take_screenshot list HTTP %d: %s",
-                               r.status_code, r.text[:200])
-                return None
+        if r.is_success:
+            data = await _json_body(r)
+            item = _latest_item(_normalize_items(data))
+            if item:
+                b64 = await _from_item(item, client)
+                if b64:
+                    return b64
+        else:
+            logger.warning(
+                "take_screenshot create HTTP %d: %s",
+                r.status_code,
+                r.text[:300],
+            )
 
-        data = r.json()
-        logger.info("screenshot_response type=%s keys=%s",
-                     type(data).__name__,
-                     list(data.keys()) if isinstance(data, dict) else "N/A")
+        # Fallback for newer Recall docs behavior (list/retrieve APIs):
+        # poll for a fresh screenshot recorded after this request started.
+        recorded_after = (started_at - timedelta(seconds=2)).isoformat().replace("+00:00", "Z")
+        for _ in range(5):
+            r_list = await client.get(
+                create_url,
+                headers=_headers(),
+                params={"recorded_at_after": recorded_after},
+            )
+            if r_list.is_success:
+                item = _latest_item(_normalize_items(await _json_body(r_list)))
+                if item:
+                    b64 = await _from_item(item, client)
+                    if b64:
+                        return b64
+            await asyncio.sleep(0.7)
 
-        # Handle list response (array) — grab the latest screenshot
-        if isinstance(data, list) and data:
-            data = data[-1]  # latest
-        elif isinstance(data, dict) and "results" in data:
-            results = data["results"]
-            if results:
-                data = results[-1]
-            else:
-                logger.warning("take_screenshot: empty results list")
-                return None
-
-        if not isinstance(data, dict):
-            logger.warning("take_screenshot: unexpected response type %s",
-                           type(data).__name__)
+        # Last fallback: grab the newest available screenshot regardless of timestamp.
+        r_latest = await client.get(create_url, headers=_headers())
+        if not r_latest.is_success:
+            logger.warning(
+                "take_screenshot list HTTP %d: %s",
+                r_latest.status_code,
+                r_latest.text[:200],
+            )
             return None
 
-        # Extract base64 data — Recall may use different keys
-        b64 = (data.get("data") or data.get("screenshot") or
-               data.get("b64_data") or data.get("image"))
-
-        # If the response has a URL instead of inline b64, fetch it
-        img_url = data.get("url") or data.get("image_url")
-        if not b64 and img_url:
-            logger.info("screenshot_fetching_url: %s", img_url[:100])
-            img_r = await client.get(img_url)
-            if img_r.is_success:
-                import base64 as b64_mod
-                b64 = b64_mod.standard_b64encode(img_r.content).decode("ascii")
-
-        if not b64:
-            logger.warning("screenshot_no_data, keys=%s, sample=%s",
-                           list(data.keys()), str(data)[:300])
-        return b64
+        item = _latest_item(_normalize_items(await _json_body(r_latest)))
+        if not item:
+            logger.warning("take_screenshot: no screenshots returned")
+            return None
+        return await _from_item(item, client)
 
     except Exception as e:
         logger.exception("take_screenshot failed: %s", e)

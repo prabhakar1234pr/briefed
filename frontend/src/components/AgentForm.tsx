@@ -67,8 +67,8 @@ function SectionHeader({ icon, title, desc }: { icon: string; title: string; des
           width: 36,
           height: 36,
           borderRadius: 10,
-          background: "rgba(59,130,246,0.1)",
-          border: "1px solid rgba(59,130,246,0.15)",
+          background: "rgba(124,58,237,0.1)",
+          border: "1px solid rgba(124,58,237,0.18)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -107,9 +107,9 @@ function Toggle({
         padding: "12px 16px",
         borderRadius: 10,
         border: "1px solid var(--border-subtle)",
-        background: checked ? "rgba(59,130,246,0.05)" : "rgba(255,255,255,0.02)",
+        background: checked ? "rgba(124,58,237,0.06)" : "rgba(255,255,255,0.02)",
         transition: "background 0.15s, border-color 0.15s",
-        borderColor: checked ? "rgba(59,130,246,0.2)" : "var(--border-subtle)",
+        borderColor: checked ? "rgba(124,58,237,0.22)" : "var(--border-subtle)",
       }}
     >
       <input
@@ -188,7 +188,7 @@ function CustomSelect<T extends string>({
           alignItems: "center",
           justifyContent: "space-between",
           transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
-          boxShadow: open ? "0 0 0 3px rgba(59,130,246,0.1)" : "none",
+          boxShadow: open ? "0 0 0 3px rgba(124,58,237,0.1)" : "none",
           textAlign: "left",
         }}
       >
@@ -290,7 +290,7 @@ function DropdownItem<T extends string>({
         border: "none",
         borderRadius: 8,
         background: isSelected
-          ? "rgba(59,130,246,0.12)"
+          ? "rgba(124,58,237,0.12)"
           : hovered
           ? "rgba(255,255,255,0.06)"
           : "transparent",
@@ -477,7 +477,7 @@ export function AgentForm(props: Props) {
                     <span
                       style={{
                         width: 6, height: 6, borderRadius: "50%",
-                        background: v?.gender === "female" ? "#f472b6" : "#60a5fa",
+                        background: v?.gender === "female" ? "#f472b6" : "#a78bfa",
                         flexShrink: 0,
                       }}
                     />

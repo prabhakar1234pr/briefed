@@ -3,12 +3,10 @@ import Link from "next/link";
 export default function HomePage() {
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
-      {/* Hero — single intro (avoid duplicating a separate “landing” blurb above) */}
+
+      {/* Hero */}
       <section
-        style={{
-          padding: "88px 0 72px",
-          textAlign: "center",
-        }}
+        style={{ padding: "96px 0 80px", textAlign: "center" }}
         className="anim-0"
       >
         {/* Eyebrow */}
@@ -17,11 +15,11 @@ export default function HomePage() {
             display: "inline-flex",
             alignItems: "center",
             gap: 8,
-            background: "rgba(59,130,246,0.1)",
-            border: "1px solid rgba(59,130,246,0.2)",
+            background: "rgba(124,58,237,0.1)",
+            border: "1px solid rgba(124,58,237,0.22)",
             borderRadius: 100,
             padding: "5px 14px",
-            marginBottom: 28,
+            marginBottom: 32,
           }}
         >
           <span
@@ -30,13 +28,11 @@ export default function HomePage() {
               height: 6,
               borderRadius: "50%",
               background: "var(--accent)",
-              boxShadow: "0 0 8px rgba(59,130,246,0.6)",
+              boxShadow: "0 0 8px rgba(124,58,237,0.7)",
               display: "inline-block",
             }}
           />
-          <span
-            style={{ fontSize: 12, color: "#93c5fd", fontWeight: 500, letterSpacing: "0.04em" }}
-          >
+          <span style={{ fontSize: 12, color: "#c4b5fd", fontWeight: 500, letterSpacing: "0.04em" }}>
             AI Meeting Intelligence
           </span>
         </div>
@@ -50,16 +46,15 @@ export default function HomePage() {
             lineHeight: 1.1,
             letterSpacing: "-0.02em",
             color: "var(--text-primary)",
-            marginBottom: 20,
-            maxWidth: 760,
-            margin: "0 auto 20px",
+            maxWidth: 780,
+            margin: "0 auto 22px",
           }}
         >
           Your meeting has{" "}
           <span
             style={{
               fontStyle: "italic",
-              background: "linear-gradient(135deg, #60a5fa 0%, #2dd4bf 100%)",
+              background: "linear-gradient(135deg, #a78bfa 0%, #818cf8 100%)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
             }}
@@ -72,18 +67,14 @@ export default function HomePage() {
           style={{
             fontSize: 17,
             color: "var(--text-secondary)",
-            maxWidth: 560,
-            margin: "0 auto 40px",
-            lineHeight: 1.65,
+            maxWidth: 540,
+            margin: "0 auto 44px",
+            lineHeight: 1.7,
             fontWeight: 300,
           }}
         >
-          Unlike passive note-takers, Briefed is built for{" "}
-          <strong style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
-            live participation
-          </strong>
-          — it joins your calls, listens in real time, and delivers transcripts,
-          recordings, and briefs when the meeting ends.
+          Briefed joins your Zoom, Meet, or Teams call as an AI participant — listening in real time,
+          answering questions live, and delivering a full brief the moment the call ends.
         </p>
 
         {/* CTA row */}
@@ -97,18 +88,18 @@ export default function HomePage() {
           }}
         >
           <Link href="/auth" className="btn-primary" style={{ fontSize: 15, padding: "12px 28px" }}>
-            Get started
+            Get started free
           </Link>
           <Link href="/meeting" className="btn-secondary" style={{ fontSize: 15, padding: "12px 28px" }}>
             Start a meeting
           </Link>
           <Link href="/agents/new" className="btn-secondary" style={{ fontSize: 15, padding: "12px 28px" }}>
-            Design an agent
+            Build an agent
           </Link>
         </div>
       </section>
 
-      {/* How it works — PRD user flow */}
+      {/* How it works */}
       <section
         style={{
           padding: "56px 0 72px",
@@ -136,11 +127,11 @@ export default function HomePage() {
             fontWeight: 400,
             textAlign: "center",
             color: "var(--text-primary)",
-            marginBottom: 40,
+            marginBottom: 44,
             letterSpacing: "-0.02em",
           }}
         >
-          From agent to brief in three steps
+          From setup to brief in three steps
         </h2>
         <div
           style={{
@@ -152,30 +143,30 @@ export default function HomePage() {
           {[
             {
               step: "01",
-              title: "Design your agent",
-              body: "Name, persona, and mode — Copilot for live Q&A and context, or Proctor for interview integrity signals.",
+              title: "Build your agent",
+              body: "Give your agent a name, persona, and mode. Copilot handles live Q&A and context retrieval — Proctor monitors for interview integrity signals.",
             },
             {
               step: "02",
-              title: "Briefed joins the call",
-              body: "Our Recall.ai bot enters Zoom or Google Meet, streams real-time transcript, and captures recording artifacts.",
+              title: "Agent joins the call",
+              body: "Briefed sends a bot into any Zoom or Google Meet link. It streams a live transcript and monitors audio and video in real time.",
             },
             {
               step: "03",
-              title: "Get the brief",
-              body: "Full transcript, video, audio, and summaries land in your dashboard when processing completes.",
+              title: "Receive the brief",
+              body: "The moment the call ends, your dashboard fills with a full transcript, AI summary, action items, key decisions, and recordings.",
             },
           ].map((s) => (
             <div
               key={s.step}
               className="card"
-              style={{ padding: 24, position: "relative" }}
+              style={{ padding: 28, position: "relative" }}
             >
               <span
                 style={{
                   fontFamily: "var(--font-display)",
                   fontSize: 36,
-                  color: "rgba(59,130,246,0.2)",
+                  color: "rgba(124,58,237,0.18)",
                   position: "absolute",
                   top: 16,
                   right: 20,
@@ -194,7 +185,7 @@ export default function HomePage() {
               >
                 {s.title}
               </h3>
-              <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.65 }}>
+              <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.7 }}>
                 {s.body}
               </p>
             </div>
@@ -214,10 +205,10 @@ export default function HomePage() {
         {[
           {
             icon: "◎",
-            color: "#60a5fa",
-            glow: "rgba(59,130,246,0.08)",
+            color: "#a78bfa",
+            glow: "rgba(124,58,237,0.08)",
             title: "Copilot Mode",
-            desc: "Pre-load GitHub repos, docs, and context. The agent answers questions live in your call using its knowledge base.",
+            desc: "Pre-load GitHub repos, documentation, and notes. Your agent answers questions live during the call using its private knowledge base.",
             tag: "Voice + Memory",
             tagClass: "tag-blue",
             delay: "anim-1",
@@ -228,7 +219,7 @@ export default function HomePage() {
             color: "#5eead4",
             glow: "rgba(45,212,191,0.08)",
             title: "Proctor Mode",
-            desc: "Silent AI observer for interviews. Detects suspicious eye movement, scripted speech, and potential earpiece use.",
+            desc: "A silent AI observer for technical interviews. Detects off-camera activity, scripted speech patterns, and potential earpiece use.",
             tag: "Vision + Audio",
             tagClass: "tag-teal",
             delay: "anim-2",
@@ -239,7 +230,7 @@ export default function HomePage() {
             color: "#fcd34d",
             glow: "rgba(245,158,11,0.08)",
             title: "Post-Meeting Brief",
-            desc: "Summary, action items, key decisions, and a searchable transcript — ready 30 seconds after the call ends.",
+            desc: "Summary, action items, key decisions, and a searchable transcript — auto-generated and waiting in your dashboard within minutes.",
             tag: "AI Summary",
             tagClass: "tag-amber",
             delay: "anim-3",
@@ -296,7 +287,7 @@ export default function HomePage() {
               style={{
                 fontSize: 13,
                 color: "var(--text-secondary)",
-                lineHeight: 1.65,
+                lineHeight: 1.7,
                 marginBottom: 20,
               }}
             >
@@ -321,7 +312,7 @@ export default function HomePage() {
             display: "inline-flex",
             alignItems: "center",
             gap: 10,
-            marginBottom: 12,
+            marginBottom: 14,
           }}
         >
           <div
@@ -329,7 +320,7 @@ export default function HomePage() {
               width: 24,
               height: 24,
               borderRadius: 7,
-              background: "linear-gradient(135deg, #3b82f6 0%, #2dd4bf 100%)",
+              background: "linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)",
             }}
           />
           <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>Briefed</span>
