@@ -45,6 +45,12 @@ class TestWsCopilotEndpoint:
         mock_search = AsyncMock(return_value=["Rate limits are 1000 req/min."])
         monkeypatch.setattr("app.context_pipeline.search_context", mock_search)
 
+        # Mock TTS and audio injection (needed by ACK + sentence injection)
+        monkeypatch.setattr("app.ai_client.thinking_acknowledgement", AsyncMock(return_value=b"fake-ack-mp3"))
+        monkeypatch.setattr("app.ai_client.text_to_speech_mp3", AsyncMock(return_value=b"fake-mp3"))
+        monkeypatch.setattr("app.ai_client.embed_text", AsyncMock(return_value=[[0.0] * 768]))
+        monkeypatch.setattr("app.output_media.inject_audio", AsyncMock())
+
         async def fake_stream(**kwargs):
             yield "The rate limit is one thousand requests per minute."
             yield "This applies to all workspaces."
@@ -130,8 +136,8 @@ class TestOutputMediaBotCreation:
         def _user() -> str:
             return USER_ID
 
-        from app.auth_deps import get_supabase_user_id
-        app.dependency_overrides[get_supabase_user_id] = _user
+        from app.auth_deps import get_user_id
+        app.dependency_overrides[get_user_id] = _user
 
         create = AsyncMock(return_value={"id": "recall-bot-output-media"})
         monkeypatch.setattr("app.main.recall.create_bot", create)
@@ -183,8 +189,8 @@ class TestOutputMediaBotCreation:
         def _user() -> str:
             return USER_ID
 
-        from app.auth_deps import get_supabase_user_id
-        app.dependency_overrides[get_supabase_user_id] = _user
+        from app.auth_deps import get_user_id
+        app.dependency_overrides[get_user_id] = _user
 
         create = AsyncMock(return_value={"id": "recall-bot-legacy"})
         monkeypatch.setattr("app.main.recall.create_bot", create)
