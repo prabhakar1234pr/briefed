@@ -71,7 +71,7 @@ class TestConvenienceWrappers:
         from app.rate_limit import check_fact_cooldown
         result = await check_fact_cooldown("meet-1")
         assert result is True
-        mock_rl.assert_awaited_once_with("fact_cooldown", "meet-1", 1, 28_000)
+        mock_rl.assert_awaited_once_with("fact_cooldown", "meet-1", 1, 10_000)
 
     @pytest.mark.asyncio
     @patch("app.rate_limit.check_rate_limit", new_callable=AsyncMock, return_value=False)
@@ -79,7 +79,7 @@ class TestConvenienceWrappers:
         from app.rate_limit import check_fact_hourly_cap
         result = await check_fact_hourly_cap("meet-1")
         assert result is False
-        mock_rl.assert_awaited_once_with("fact_hourly", "meet-1", 12, 3_600_000)
+        mock_rl.assert_awaited_once_with("fact_hourly", "meet-1", 200, 3_600_000)
 
 
 # ─── API key verification ─────────────────────────────────────────────────────

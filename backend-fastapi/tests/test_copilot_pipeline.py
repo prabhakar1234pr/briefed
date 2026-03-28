@@ -69,10 +69,10 @@ class TestCopilotTriggerQA:
         assert len(interactions) == 1
         assert "thousand" in interactions[0]["response_text"].lower()
 
-        # Verify TTS was called for both sentences + ACK
-        assert mock_tts.await_count == 2  # two sentences
-        # Verify inject was called: 1 ACK + 2 sentences = 3
-        assert mock_inject.await_count >= 3
+        # Verify TTS was called once for the full response (single inject)
+        assert mock_tts.await_count == 1
+        # Verify inject was called: 1 ACK + 1 full response = 2
+        assert mock_inject.await_count == 2
 
     @pytest.mark.asyncio
     async def test_proctor_mode_does_nothing(self, db: FakeSupabase, monkeypatch) -> None:
@@ -144,7 +144,7 @@ class TestCopilotTriggerScreenshot:
             if r.get("interaction_type") == "screenshot"
         ]
         assert len(screenshots) == 1
-        assert "unavailable" in screenshots[0]["response_text"].lower()
+        assert "wasn't able" in screenshots[0]["response_text"].lower()
 
 
 class TestCopilotTriggerFactCheck:

@@ -110,5 +110,5 @@ class TestFactCheckEligibility:
 
     @pytest.mark.asyncio
     async def test_factcheck_skips_few_words(self) -> None:
-        text = "Rate limits are high enough"  # < 8 words
+        text = "Too short"  # < 4 words
         assert not await _should_run_factcheck("meet-1", text, self._agent())
