@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { DeleteRowButton } from "@/components/DeleteRowButton";
 import { getSupabaseDbClient } from "@/lib/supabase";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { auth } from "@clerk/nextjs/server";
 import type { MeetingStatus } from "@/types/agents";
 
 const statusConfig: Record<MeetingStatus, { dot: string; label: string; tagClass: string }> = {
@@ -28,7 +28,7 @@ function extractDomain(url: string) {
 }
 
 export default async function MeetingsPage() {
-  await withAuth({ ensureSignedIn: true });
+  await auth.protect();
   const supabase = getSupabaseDbClient();
   const { data: meetings, error } = await supabase
     .from("meetings")

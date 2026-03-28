@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { auth } from "@clerk/nextjs/server";
 import { getSupabaseDbClient } from "@/lib/supabase";
 import type { MeetingStatus } from "@/types/agents";
 import { MeetingChat } from "@/components/MeetingChat";
@@ -35,7 +35,7 @@ function SL({ children }: { children: React.ReactNode }) {
 
 export default async function MeetingDetailPage({ params }: Props) {
   const { id } = await params;
-  await withAuth({ ensureSignedIn: true });
+  await auth.protect();
   const supabase = getSupabaseDbClient();
 
   const { data: meeting, error } = await supabase

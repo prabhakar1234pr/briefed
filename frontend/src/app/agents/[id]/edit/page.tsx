@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSupabaseDbClient } from "@/lib/supabase";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { auth } from "@clerk/nextjs/server";
 import { AgentForm } from "@/components/AgentForm";
 import { ContextBuilder } from "@/components/ContextBuilder";
 
@@ -9,7 +9,7 @@ type Props = { params: Promise<{ id: string }> };
 
 export default async function EditAgentPage({ params }: Props) {
   const { id } = await params;
-  await withAuth({ ensureSignedIn: true });
+  await auth.protect();
   const supabase = getSupabaseDbClient();
   const { data: agent, error } = await supabase
     .from("agents")
