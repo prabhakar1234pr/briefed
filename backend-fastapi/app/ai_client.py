@@ -139,7 +139,7 @@ async def answer_question_streaming(
         raise RuntimeError("GCP_PROJECT not set")
 
     context_block = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
-    transcript_block = (transcript or "")[:8000]
+    transcript_block = (transcript or "")[:16000]
     has_context = bool(context_chunks)
     has_transcript = bool(transcript_block.strip())
 
@@ -336,7 +336,7 @@ async def answer_question(
 ) -> str:
     """Non-streaming answer for the /ask endpoint (text response, not audio)."""
     context_block = "\n\n---\n\n".join(context_chunks) if context_chunks else ""
-    transcript_block = (transcript or "")[:8000]
+    transcript_block = (transcript or "")[:16000]
     has_context = bool(context_chunks)
     has_transcript = bool(transcript_block.strip())
 

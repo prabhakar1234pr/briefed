@@ -440,8 +440,8 @@ async def process_copilot_trigger(
             t0 = time.perf_counter()
             ack_mp3, context_chunks, recent_transcript = await asyncio.gather(
                 thinking_acknowledgement(voice_id),
-                search_context(agent_id, content, top_k=3),
-                _fetch_recent_transcript(db, meeting_id, limit=20),
+                search_context(agent_id, content, top_k=6),
+                _fetch_recent_transcript(db, meeting_id, limit=40),
             )
             log.info("gather_done",
                      meeting_id=meeting_id,
@@ -507,7 +507,7 @@ async def process_copilot_trigger(
         elif trigger_type == "factcheck":
             if not agent.get("proactive_fact_check"):
                 return
-            context_chunks = await search_context(agent_id, content, top_k=4)
+            context_chunks = await search_context(agent_id, content, top_k=6)
             result = await fact_check(content, context_chunks, agent_name)
             if not result.get("contradicts"):
                 log.debug("factcheck_no_contradiction", meeting_id=meeting_id)
@@ -942,7 +942,7 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
             async def _search_context_fast() -> list[str]:
                 try:
                     # Avoid waiting too long on cold embedding startup.
-                    return await asyncio.wait_for(search_context(agent_id, question, top_k=3), timeout=3.0)
+                    return await asyncio.wait_for(search_context(agent_id, question, top_k=6), timeout=3.0)
                 except TimeoutError:
                     log.warning("ws_context_timeout", meeting_id=meeting_id, timeout_s=3.0)
                     return []
@@ -955,7 +955,7 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
             ack_mp3, context_chunks, recent_transcript = await asyncio.gather(
                 thinking_acknowledgement(voice_id),
                 _search_context_fast(),
-                _fetch_recent_transcript(db, meeting_id, limit=20),
+                _fetch_recent_transcript(db, meeting_id, limit=40),
             )
             log.info("ws_gather_done",
                      meeting_id=meeting_id,
