@@ -1,7 +1,4 @@
-import { getSignInUrl } from "@workos-inc/authkit-nextjs";
-import { redirect } from "next/navigation";
-
+import { NextResponse } from "next/server";
 export async function GET() {
-  const url = await getSignInUrl();
-  redirect(url);
+  return NextResponse.redirect(new URL("/auth", process.env.NEXT_PUBLIC_APP_URL ?? "https://briefed-mu.vercel.app"));
 }

@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { auth } from "@clerk/nextjs/server";
 
 export async function GET() {
-  const session = await withAuth();
-
-  if (!session.accessToken) {
+  const { getToken } = await auth();
+  const token = await getToken();
+  if (!token) {
     return NextResponse.json({ accessToken: null }, { status: 401 });
   }
-
-  return NextResponse.json({ accessToken: session.accessToken });
+  return NextResponse.json({ accessToken: token });
 }

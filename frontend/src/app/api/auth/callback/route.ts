@@ -1,15 +1,4 @@
-import { handleAuth } from "@workos-inc/authkit-nextjs";
 import { NextResponse } from "next/server";
-
-export const GET = handleAuth({
-  returnPathname: "/",
-  onError: ({ error }) => {
-    return NextResponse.json(
-      {
-        error: String(error),
-        message: (error as Error)?.message,
-      },
-      { status: 500 },
-    );
-  },
-});
+export async function GET() {
+  return NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_APP_URL ?? "https://briefed-mu.vercel.app"));
+}

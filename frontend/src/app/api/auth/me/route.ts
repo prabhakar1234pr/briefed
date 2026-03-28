@@ -1,26 +1,23 @@
 import { NextResponse } from "next/server";
-import { withAuth } from "@workos-inc/authkit-nextjs";
+import { currentUser } from "@clerk/nextjs/server";
 import { getSupabaseDbClient } from "@/lib/supabase";
 
 export async function GET() {
-  const session = await withAuth();
-
-  if (!session.user) {
+  const user = await currentUser();
+  if (!user) {
     return NextResponse.json({ authenticated: false, user: null });
   }
 
-  const user = session.user;
-  const fullName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || null;
+  const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ") || null;
 
-  // Upsert user into Supabase on every auth check (creates on first sign-in)
   try {
     const supabase = getSupabaseDbClient();
     await supabase.from("users").upsert(
       {
         id: user.id,
-        email: user.email ?? "",
+        email: user.primaryEmailAddress?.emailAddress ?? "",
         full_name: fullName,
-        avatar_url: user.profilePictureUrl ?? null,
+        avatar_url: user.imageUrl ?? null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" },
@@ -33,7 +30,7 @@ export async function GET() {
     authenticated: true,
     user: {
       sub: user.id,
-      email: user.email ?? null,
+      email: user.primaryEmailAddress?.emailAddress ?? null,
       name: fullName,
     },
   });
