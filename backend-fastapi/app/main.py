@@ -216,8 +216,10 @@ async def _should_run_factcheck(meeting_id: str, text: str, agent: dict[str, Any
     if not agent.get("proactive_fact_check"):
         return False
     t = text.strip()
-    if len(t) < MIN_CHARS_FACT or t.endswith("?") or len(t.split()) < 8:
+    # Lower thresholds: 20 chars min, 4 words min (was 42 chars, 8 words)
+    if len(t) < 20 or t.endswith("?") or len(t.split()) < 4:
         return False
+    # Cooldown: 10s between fact-checks (was 28s via Unkey)
     if not await check_fact_cooldown(meeting_id):
         return False
     return await check_fact_hourly_cap(meeting_id)
