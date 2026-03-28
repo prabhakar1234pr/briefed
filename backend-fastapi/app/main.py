@@ -459,13 +459,8 @@ async def process_copilot_trigger(
             # Inject ACK audio (fast — cached + pooled connection)
             await inject_audio(bot_id, ack_mp3)
 
-            # Step 2: stream Gemini → TTS → inject with playback gap
-            # Key: Recall plays audio immediately on inject — no queue.
-            # We must wait for the previous sentence to finish playing
-            # before injecting the next one, or they overlap.
+            # Step 2: stream Gemini → collect full response → single TTS + inject
             sentence_n = 0
-            last_inject_at: float = 0.0       # monotonic time when last inject returned
-            last_audio_duration: float = 0.0   # estimated playback time of last sentence
 
             async for sentence in answer_question_streaming(
                 question=content,
@@ -479,37 +474,18 @@ async def process_copilot_trigger(
                     continue
                 sentence_n += 1
 
-                # TTS: convert sentence to MP3
-                t_tts = time.perf_counter()
-                mp3 = await text_to_speech_mp3(sentence, voice_id)
-                tts_ms = int((time.perf_counter() - t_tts) * 1000)
-
-                # Wait for previous sentence to finish PLAYING (not just injecting)
-                # MP3 at 128kbps: duration ≈ bytes / 16000. Add 0.3s buffer.
-                if last_inject_at > 0:
-                    elapsed_since_inject = time.perf_counter() - last_inject_at
-                    remaining_playback = last_audio_duration - elapsed_since_inject
-                    if remaining_playback > 0:
-                        log.debug("playback_wait",
-                                  meeting_id=meeting_id, n=sentence_n,
-                                  wait_s=round(remaining_playback, 2))
-                        await asyncio.sleep(remaining_playback)
-
-                # Inject audio
-                t_inject = time.perf_counter()
-                await inject_audio(bot_id, mp3)
-                inject_ms = int((time.perf_counter() - t_inject) * 1000)
-
-                # Track timing for next sentence's playback wait
-                last_inject_at = time.perf_counter()
-                last_audio_duration = len(mp3) / 12000.0 + 1.0  # MP3 128kbps estimate + buffer
-
-                log.info("sentence_spoken",
-                         meeting_id=meeting_id, n=sentence_n,
-                         tts_ms=tts_ms, inject_ms=inject_ms,
-                         audio_est_s=round(last_audio_duration, 1),
-                         sentence_preview=sentence[:60])
                 response_parts.append(sentence)
+
+            # Single TTS + inject for full response — no overlap
+            if response_parts:
+                full_text = " ".join(response_parts)
+                t_tts = time.perf_counter()
+                mp3 = await text_to_speech_mp3(full_text, voice_id)
+                tts_ms = int((time.perf_counter() - t_tts) * 1000)
+                await inject_audio(bot_id, mp3)
+                log.info("response_spoken", meeting_id=meeting_id,
+                         sentences=sentence_n, tts_ms=tts_ms,
+                         chars=len(full_text), mp3_kb=round(len(mp3)/1024, 1))
 
         # ── Fact-check ────────────────────────────────────────────────────
         elif trigger_type == "factcheck":
@@ -974,10 +950,9 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
             if bot_id:
                 await inject_audio(bot_id, ack_mp3)
 
-            # Stream Gemini and speak sentence-by-sentence for low first-audio latency.
+            # Stream Gemini tokens for visual display, collect full response,
+            # then single TTS + single inject — zero overlap.
             response_parts: list[str] = []
-            last_inject_at: float = 0.0
-            last_audio_duration: float = 0.0
             sentence_n = 0
 
             async for sentence in answer_question_streaming(
@@ -999,22 +974,17 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
                 response_parts.append(sentence)
                 sentence_n += 1
 
-                if bot_id:
-                    try:
-                        mp3 = await text_to_speech_mp3(sentence, voice_id)
-
-                        if last_inject_at > 0:
-                            elapsed_since_inject = time.perf_counter() - last_inject_at
-                            remaining_playback = last_audio_duration - elapsed_since_inject
-                            if remaining_playback > 0:
-                                await asyncio.sleep(remaining_playback)
-
-                        await inject_audio(bot_id, mp3)
-                        last_inject_at = time.perf_counter()
-                        last_audio_duration = len(mp3) / 12000.0 + 1.0
-                    except Exception as tts_err:
-                        log.warning("ws_tts_error", meeting_id=meeting_id, n=sentence_n,
-                                    error=str(tts_err)[:100])
+            # Single TTS call + single inject for the full response — no overlap
+            if bot_id and response_parts:
+                try:
+                    full_text = " ".join(response_parts)
+                    mp3 = await text_to_speech_mp3(full_text, voice_id)
+                    await inject_audio(bot_id, mp3)
+                    log.info("ws_audio_injected", meeting_id=meeting_id,
+                             chars=len(full_text), mp3_kb=round(len(mp3)/1024, 1))
+                except Exception as tts_err:
+                    log.warning("ws_tts_error", meeting_id=meeting_id,
+                                error=str(tts_err)[:100])
 
             await websocket.send_json({"type": "done"})
 

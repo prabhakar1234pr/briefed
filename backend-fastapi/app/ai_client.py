@@ -549,7 +549,7 @@ async def text_to_speech_mp3(
     # Sanitize text for TTS — strip chars that get read literally
     import re as _re
     clean = text
-    clean = _re.sub(r'[*#@&\[\]{}()<>|\\~`^]', '', clean)  # remove special chars
+    clean = _re.sub(r'[*#@&\[\]{}()<>|\\~`^"\u2018\u2019\u201c\u201d]', '', clean)  # remove special chars + backticks + smart quotes
     clean = clean.replace('!', '.').replace(';', ',')  # replace ! with period, ; with comma
     clean = _re.sub(r'\s+', ' ', clean).strip()  # collapse whitespace
 
