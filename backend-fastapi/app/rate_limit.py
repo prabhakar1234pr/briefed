@@ -59,5 +59,5 @@ async def check_fact_cooldown(meeting_id: str) -> bool:
 
 
 async def check_fact_hourly_cap(meeting_id: str) -> bool:
-    """Max 30 fact-checks per hour per meeting."""
-    return await check_rate_limit("fact_hourly", meeting_id, 30, 3_600_000)
+    """Max 200 fact-checks per hour per meeting."""
+    return await check_rate_limit("fact_hourly", meeting_id, 200, 3_600_000)
