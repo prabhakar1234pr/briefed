@@ -42,6 +42,8 @@ from app.db import get_supabase_service
 from app.logger import get_logger, log_timing, setup_logging
 from app.output_media import copilot_bootstrap_mp3_b64
 from app import recall_client as recall
+from app.pipeline.bot_bridge import router as bot_bridge_router
+from app.github_webhook import router as github_webhook_router
 
 log = get_logger(__name__)
 
@@ -118,6 +120,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── v2 voice pipeline: bot-page WebSocket bridge ─────────────────────────────
+app.include_router(bot_bridge_router)
+# ─── Phase 4b: GitHub webhook + connect-repo endpoint ─────────────────────────
+app.include_router(github_webhook_router)
 
 
 # ─── Request models ───────────────────────────────────────────────────────────
@@ -357,6 +364,40 @@ async def finalize_meeting(bot_id: str) -> None:
             log.exception("intelligence_failed", meeting_id=meeting_id, error=str(e))
 
     db.table("meetings").update(update).eq("id", meeting_id).execute()
+
+    # ── Phase 4a: write this meeting into the agent's long-term memory ──
+    # So Sam's next meeting knows what was decided in this one. We push the
+    # summary + action items + decisions as a single "meeting" memory tagged
+    # with the meeting_id and date. Stored per-agent via Supermemory.
+    if agent_id and intel:
+        try:
+            from app.pipeline import memory as _mem
+            meeting_date = now.split("T")[0]
+            summary_block = (intel.get("summary") or "").strip()
+            actions = intel.get("action_items") or []
+            decisions = intel.get("key_decisions") or []
+            parts: list[str] = []
+            if summary_block:
+                parts.append(f"Meeting summary ({meeting_date}):\n{summary_block}")
+            if decisions:
+                parts.append("Key decisions:\n" + "\n".join(f"- {d}" for d in decisions))
+            if actions:
+                parts.append("Action items:\n" + "\n".join(f"- {a}" for a in actions))
+            memory_text = "\n\n".join(parts)
+            if memory_text:
+                await _mem.add_memory(
+                    agent_id=agent_id,
+                    content=memory_text,
+                    source_url=f"meeting://{meeting_id}",
+                    kind="meeting",
+                    extra_metadata={"meeting_id": meeting_id, "meeting_date": meeting_date},
+                )
+                log.info("meeting_memory_persisted", meeting_id=meeting_id, agent_id=agent_id,
+                         chars=len(memory_text))
+        except Exception as e:
+            # Memory write-back failures must not break meeting completion.
+            log.warning("meeting_memory_failed", meeting_id=meeting_id, error=str(e)[:200])
+
     log.info("finalize_meeting_done", meeting_id=meeting_id,
              has_intel=bool(intel), has_video=bool(video_u), has_audio=bool(audio_u))
 
@@ -675,13 +716,26 @@ async def start_meeting(
     meeting_row_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     s = get_settings()
-    use_output_media = bool(s.get("cartesia_api_key") and s.get("bot_page_url"))
-    copilot_mode = "output_media" if use_output_media else "output_audio"
+    # v2 voice pipeline: full Pipecat brain. Enabled when Deepgram + ElevenLabs
+    # keys are configured. Mints a bridge token the bot-page uses to authenticate.
+    import secrets as _secrets
+    use_v2 = bool(s.get("deepgram_api_key") and s.get("elevenlabs_api_key") and s.get("bot_page_url"))
+    # NOTE: legacy v1 output_media path is gone — bot-page/index.html is now v2-only.
+    # When v2 keys are missing, fall through to output_audio (backend TTS + MP3 inject).
+    use_output_media = False
+    if use_v2:
+        copilot_mode = "v2"
+    elif use_output_media:
+        copilot_mode = "output_media"
+    else:
+        copilot_mode = "output_audio"
+    bridge_token = _secrets.token_urlsafe(32) if use_v2 else None
 
     db.table("meetings").insert({
         "id": meeting_row_id, "user_id": user_id, "agent_id": body.agent_id,
         "meeting_link": body.meeting_link.strip(), "bot_id": None,
         "status": "scheduled", "copilot_mode": copilot_mode,
+        "bridge_token": bridge_token,
         "scheduled_at": body.join_at if not body.join_now else None,
         "updated_at": now,
     }).execute()
@@ -701,9 +755,13 @@ async def start_meeting(
                 "language_code": "en", "mode": "prioritize_low_latency"
             }}},
             "video_mixed_mp4": {}, "audio_mixed_mp3": {},
-            "realtime_endpoints": [
-                {"type": "webhook", "url": realtime_url, "events": ["transcript.data"]}
-            ],
+            # v2 doesn't need the transcript webhook — Pipecat runs its own STT.
+            # Keep it for v1 modes only.
+            **({} if use_v2 else {
+                "realtime_endpoints": [
+                    {"type": "webhook", "url": realtime_url, "events": ["transcript.data"]}
+                ]
+            }),
         },
         "automatic_leave": {
             "waiting_room_timeout": 600,
@@ -715,7 +773,27 @@ async def start_meeting(
             "send_to": "everyone", "message": _bot_message_from_agent(agent)
         }},
     }
-    if use_output_media:
+    if use_v2:
+        # v2: bot-page connects to backend Pipecat over WS, streams PCM both ways.
+        backend_ws = public.replace("https://", "wss://").replace("http://", "ws://")
+        from urllib.parse import urlencode
+        import time as _time
+        page_params = urlencode({
+            "meeting_id": meeting_row_id,
+            "agent_name": bot_name,
+            "backend_ws": backend_ws,
+            "token": bridge_token or "",
+            "_v": str(int(_time.time())),
+        })
+        payload["bot_variant"] = "web_4_core"  # bot-page needs cores for audio + Pipecat sync
+        payload["output_media"] = {
+            "camera": {
+                "kind": "webpage",
+                "config": {"url": f"{s['bot_page_url']}?{page_params}"},
+            }
+        }
+        log.info("v2_pipeline_configured", meeting_id=meeting_row_id, bot_page=s["bot_page_url"])
+    elif use_output_media:
         # Output Media: bot renders a webpage that handles TTS client-side
         backend_ws = public.replace("https://", "wss://").replace("http://", "ws://")
         from urllib.parse import urlencode

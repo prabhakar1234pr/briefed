@@ -7,6 +7,7 @@ dependencies = [
   "fastapi",
   "uvicorn[standard]",
   "httpx",
+  "websockets>=12.0",
   "PyJWT",
   "cryptography",
   "supabase",
@@ -15,6 +16,14 @@ dependencies = [
   "vertexai",
   "google-genai>=1.0.0",
   "python-dotenv",
+  # v2 voice pipeline
+  "pipecat-ai[deepgram,elevenlabs,silero,google,webrtc]>=0.0.105",
+  "deepgram-sdk>=3.5",
+  "elevenlabs>=1.0",
+  # v2 observability + memory + auth
+  "langsmith>=0.1.130",
+  "supermemory>=0.3",
+  "firebase-admin>=6.5",
 ]
 
 [project.optional-dependencies]

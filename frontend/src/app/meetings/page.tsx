@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { DeleteRowButton } from "@/components/DeleteRowButton";
 import { getSupabaseDbClient } from "@/lib/supabase";
-import { auth } from "@clerk/nextjs/server";
+import { requireServerUser } from "@/lib/auth";
 import type { MeetingStatus } from "@/types/agents";
 
 const statusConfig: Record<MeetingStatus, { dot: string; label: string; tagClass: string }> = {
@@ -28,8 +28,8 @@ function extractDomain(url: string) {
 }
 
 export default async function MeetingsPage() {
-  await auth.protect();
-  const supabase = getSupabaseDbClient();
+  await requireServerUser("/meetings");
+  const supabase = await getSupabaseDbClient();
   const { data: meetings, error } = await supabase
     .from("meetings")
     .select("id, meeting_link, status, created_at, bot_id")

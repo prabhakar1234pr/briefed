@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { DeleteRowButton } from "@/components/DeleteRowButton";
 import { getSupabaseDbClient } from "@/lib/supabase";
-import { auth } from "@clerk/nextjs/server";
+import { requireServerUser } from "@/lib/auth";
 
 export default async function AgentsListPage() {
-  await auth.protect();
-  const supabase = getSupabaseDbClient();
+  await requireServerUser("/agents");
+  const supabase = await getSupabaseDbClient();
   const { data: agents, error } = await supabase
     .from("agents")
     .select("id, name, description, updated_at, proactive_fact_check, screenshot_on_request")

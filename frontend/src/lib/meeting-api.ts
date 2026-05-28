@@ -1,32 +1,24 @@
+import { getFirebaseAuth } from "@/lib/firebase";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+/**
+ * Build the auth headers for a call to the FastAPI backend.
+ *
+ * The backend validates the Firebase ID token (set up separately). We grab
+ * a fresh ID token directly from the Firebase client SDK — `getIdToken()`
+ * auto-refreshes if the current one is near expiry, so call sites don't
+ * need to worry about staleness.
+ */
 async function authHeaders(): Promise<Record<string, string>> {
-  // Fetch access token from WorkOS AuthKit via server endpoint
-  const r = await fetch("/api/auth/me");
-  if (!r.ok) throw new Error("Not signed in");
-  const data = await r.json();
-  if (!data.authenticated) throw new Error("Not signed in");
-
-  // WorkOS AuthKit stores session in httpOnly cookie — the middleware handles
-  // injecting the access token. For API calls to the external backend, we use
-  // a server action pattern. For now, we pass the session cookie implicitly
-  // and let the /api proxy handle auth.
-  //
-  // Since our backend validates WorkOS JWTs directly, we need the access token.
-  // We fetch it from a dedicated endpoint.
-  const tokenResp = await fetch("/api/auth/token");
-  if (tokenResp.ok) {
-    const { accessToken } = await tokenResp.json();
-    if (accessToken) {
-      return {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      };
-    }
-  }
-
-  // Fallback: try the /me endpoint's session
-  throw new Error("Unable to get access token");
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error("Not signed in");
+  const token = await user.getIdToken();
+  if (!token) throw new Error("Unable to get access token");
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
 }
 
 function errorDetail(payload: unknown): string {

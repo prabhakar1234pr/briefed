@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { getSupabaseDbClient } from "@/lib/supabase";
-import { auth } from "@clerk/nextjs/server";
+import { requireServerUser } from "@/lib/auth";
 import { MeetingSession } from "@/components/MeetingSession";
 
 export default async function MeetingPage() {
-  await auth.protect();
-  const supabase = getSupabaseDbClient();
+  await requireServerUser("/meeting");
+  const supabase = await getSupabaseDbClient();
   const { data: agents } = await supabase
     .from("agents")
     .select("id, name")

@@ -18,7 +18,10 @@ ALTER TABLE public.meetings
   ADD COLUMN IF NOT EXISTS key_decisions   text,  -- stored as JSON array string
   ADD COLUMN IF NOT EXISTS joined_at       timestamptz,
   ADD COLUMN IF NOT EXISTS ended_at        timestamptz,
-  ADD COLUMN IF NOT EXISTS scheduled_at    timestamptz;
+  ADD COLUMN IF NOT EXISTS scheduled_at    timestamptz,
+  -- v2 voice pipeline: per-meeting token the bot-page uses to authenticate
+  -- against /ws/bot-bridge/{meeting_id}. Never exposed to the frontend.
+  ADD COLUMN IF NOT EXISTS bridge_token    text;
 ```
 
 #### Create `context_chunks` table

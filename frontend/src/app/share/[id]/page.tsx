@@ -1,7 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import type { MeetingStatus } from "@/types/agents";
+
+// Public share page — accessed by URL with the meeting UUID. After v2 RLS
+// lockdown, ordinary clients can only see their own meetings, so the public
+// share has to come from the service-role client. The meeting UUID itself is
+// the unguessable share token. If you need finer control (e.g. revocable
+// shares), add a `share_token` column to meetings and check it here.
 
 type Props = { params: Promise<{ id: string }> };
 export const dynamic = "force-dynamic";
@@ -32,7 +38,7 @@ function SL({ children }: { children: React.ReactNode }) {
 
 export default async function SharedMeetingPage({ params }: Props) {
   const { id } = await params;
-  const supabase = getSupabaseDbClient();
+  const supabase = getSupabaseAdminClient();
 
   const { data: meeting, error } = await supabase
     .from("meetings")

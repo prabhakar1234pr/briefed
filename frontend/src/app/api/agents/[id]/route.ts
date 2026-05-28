@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { getSupabaseDbClient } from "@/lib/supabase";
-import { auth } from "@clerk/nextjs/server";
+import { getServerUser } from "@/lib/auth";
+
+export const runtime = "nodejs";
 
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { userId } = await auth();
-  if (!userId) {
+  const user = await getServerUser();
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const supabase = getSupabaseDbClient();
+  const supabase = await getSupabaseDbClient();
 
   // Meetings reference agent_id with ON DELETE SET NULL but column is NOT NULL — remove meetings first.
   const { error: meetingsErr } = await supabase

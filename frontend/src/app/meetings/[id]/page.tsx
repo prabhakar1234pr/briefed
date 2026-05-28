@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
+import { requireServerUser } from "@/lib/auth";
 import { getSupabaseDbClient } from "@/lib/supabase";
 import type { MeetingStatus } from "@/types/agents";
 import { MeetingChat } from "@/components/MeetingChat";
@@ -35,8 +35,8 @@ function SL({ children }: { children: React.ReactNode }) {
 
 export default async function MeetingDetailPage({ params }: Props) {
   const { id } = await params;
-  await auth.protect();
-  const supabase = getSupabaseDbClient();
+  await requireServerUser(`/meetings/${id}`);
+  const supabase = await getSupabaseDbClient();
 
   const { data: meeting, error } = await supabase
     .from("meetings")

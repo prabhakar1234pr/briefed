@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
-import { dark } from "@clerk/themes";
+import { AuthProvider } from "@/components/AuthProvider";
 import { Shell } from "@/components/Shell";
 import "./globals.css";
 
@@ -13,14 +12,14 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <ClerkProvider appearance={{ baseTheme: dark }}>
-      <html lang="en" className="h-full">
-        <body className="min-h-full flex flex-col">
-          <div className="orb orb-blue" />
-          <div className="orb orb-teal" />
+    <html lang="en" className="h-full">
+      <body className="min-h-full flex flex-col">
+        <div className="orb orb-blue" />
+        <div className="orb orb-teal" />
+        <AuthProvider>
           <Shell>{children}</Shell>
-        </body>
-      </html>
-    </ClerkProvider>
+        </AuthProvider>
+      </body>
+    </html>
   );
 }

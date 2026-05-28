@@ -248,9 +248,30 @@ def _is_allowed_file(path: str, lower_path: str) -> bool:
 
 
 async def _api_get(client: httpx.AsyncClient, path: str) -> Any:
+    # Try with whatever token is configured (PAT or GitHub App installation).
     r = await client.get(f"https://api.github.com{path}", headers=_github_headers())
     if r.status_code == 404:
         return None
+    # If our token is bad/expired but the repo might be public, retry anonymously.
+    # This unsticks the common case of a rotated PAT against a public repo.
+    if r.status_code == 401:
+        anon_headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Briefed-Copilot-RAG/1.0",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        r2 = await client.get(f"https://api.github.com{path}", headers=anon_headers)
+        if r2.status_code == 404:
+            return None
+        if r2.is_success:
+            logger.warning(
+                "github_ingest: 401 with token, succeeded anonymously — "
+                "the configured GITHUB_TOKEN is invalid or expired. "
+                "Generate a new one at https://github.com/settings/tokens, "
+                "or rely on the GitHub App for private repos."
+            )
+            return r2.json()
+        # Both failed — surface the original 401 message
     r.raise_for_status()
     return r.json()
 

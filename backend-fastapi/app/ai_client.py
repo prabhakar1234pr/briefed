@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from app.logger import get_logger, log_timing
+from app.tracing import tag_run, traced
 
 log = get_logger(__name__)
 
@@ -49,6 +50,7 @@ def _flush_sentence(buf: str) -> tuple[str, str]:
 
 # ─── Blocking Gemini call (post-meeting, fact-check) ─────────────────────────
 
+@traced(name="generate_text", run_type="llm", tags=["post-meeting"])
 async def generate_text(
     prompt: str,
     system: str | None = None,
@@ -113,6 +115,7 @@ async def generate_text(
 
 # ─── Streaming live Q&A ───────────────────────────────────────────────────────
 
+@traced(name="answer_question_streaming", run_type="llm", tags=["live-qa"])
 async def answer_question_streaming(
     question: str,
     context_chunks: list[str],
@@ -331,6 +334,7 @@ async def answer_question_streaming(
 
 # ─── Non-streaming answer (/ask endpoint) ────────────────────────────────────
 
+@traced(name="answer_question", run_type="llm", tags=["ask-endpoint"])
 async def answer_question(
     question: str,
     context_chunks: list[str],
@@ -372,6 +376,7 @@ async def answer_question(
 
 # ─── Post-meeting intelligence ────────────────────────────────────────────────
 
+@traced(name="generate_meeting_intelligence", run_type="chain", tags=["post-meeting"])
 async def generate_meeting_intelligence(transcript: str, agent_name: str) -> dict[str, Any]:
     """Full summary + action items + key decisions. Unlimited output length."""
     log.info("generate_intelligence_start", transcript_chars=len(transcript))
@@ -429,6 +434,7 @@ async def generate_meeting_intelligence(transcript: str, agent_name: str) -> dic
 
 # ─── Fact-check ───────────────────────────────────────────────────────────────
 
+@traced(name="fact_check", run_type="llm", tags=["factcheck"])
 async def fact_check(
     statement: str, context_chunks: list[str], agent_name: str
 ) -> dict[str, Any]:

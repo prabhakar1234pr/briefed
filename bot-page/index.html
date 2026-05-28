@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=1280,height=720">
-<title>Briefed Copilot</title>
+<title>Briefed v2</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -15,14 +15,8 @@
     align-items: center; justify-content: center;
     overflow: hidden;
   }
-  .agent-name {
-    font-size: 28px; font-weight: 600; letter-spacing: 0.5px;
-    color: #ffffff; margin-bottom: 12px;
-  }
-  .status {
-    font-size: 16px; color: #888; margin-bottom: 24px;
-    transition: color 0.3s;
-  }
+  .agent-name { font-size: 28px; font-weight: 600; color: #fff; margin-bottom: 12px; }
+  .status { font-size: 16px; color: #888; margin-bottom: 24px; transition: color 0.3s; }
   .status.listening { color: #4ade80; }
   .status.thinking  { color: #facc15; }
   .status.speaking  { color: #60a5fa; }
@@ -30,227 +24,206 @@
   .indicator {
     width: 48px; height: 48px; border-radius: 50%;
     background: #1e1e2e; border: 2px solid #333;
-    margin-bottom: 20px; position: relative;
+    margin-bottom: 20px;
     transition: border-color 0.3s, box-shadow 0.3s;
   }
   .indicator.speaking {
-    border-color: #60a5fa;
-    box-shadow: 0 0 20px rgba(96,165,250,0.4);
+    border-color: #60a5fa; box-shadow: 0 0 20px rgba(96,165,250,0.4);
     animation: pulse 1.2s ease-in-out infinite;
   }
   @keyframes pulse {
     0%, 100% { box-shadow: 0 0 20px rgba(96,165,250,0.3); }
-    50% { box-shadow: 0 0 40px rgba(96,165,250,0.6); }
+    50%      { box-shadow: 0 0 40px rgba(96,165,250,0.6); }
   }
-  .transcript-line {
-    font-size: 14px; color: #666; max-width: 800px;
-    text-align: center; margin-top: 16px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
+  .debug { font-size: 11px; color: #555; margin-top: 8px; max-width: 1000px; text-align: center; }
 </style>
 </head>
 <body>
-
 <div class="indicator" id="indicator"></div>
 <div class="agent-name" id="agentName">Briefed</div>
-<div class="status listening" id="status">Listening...</div>
-<div class="transcript-line" id="lastLine"></div>
-<div class="transcript-line" id="debugLine" style="color:#555; font-size:11px; margin-top:8px;"></div>
+<div class="status listening" id="status">Connecting...</div>
+<div class="debug" id="debug"></div>
+<audio id="output" autoplay></audio>
 
 <script>
-// ─── Config ─────────────────────────────────────────────────────────────────
+// ─── Config from query string ────────────────────────────────────────────────
 const P = new URLSearchParams(location.search);
 const MEETING_ID = P.get('meeting_id') || '';
-const AGENT_ID   = P.get('agent_id')   || '';
-const BACKEND_WS = P.get('backend_ws') || '';
 const AGENT_NAME = P.get('agent_name') || 'Briefed';
+const BACKEND_WS = P.get('backend_ws') || '';   // e.g. wss://api.briefed.com
+const TOKEN      = P.get('token')      || '';
 
 document.getElementById('agentName').textContent = AGENT_NAME;
 
-const statusEl    = document.getElementById('status');
-const indicatorEl = document.getElementById('indicator');
-const lastLineEl  = document.getElementById('lastLine');
-const debugEl     = document.getElementById('debugLine');
+const statusEl = document.getElementById('status');
+const indEl    = document.getElementById('indicator');
+const dbgEl    = document.getElementById('debug');
 
-function dbg(msg) { debugEl.textContent = msg; console.log('[dbg]', msg); }
+function dbg(msg) { dbgEl.textContent = msg; console.log('[v2]', msg); }
 function setStatus(text, cls) {
   statusEl.textContent = text;
   statusEl.className = 'status ' + cls;
-  indicatorEl.className = 'indicator ' + cls;
+  indEl.className = 'indicator ' + cls;
 }
-function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-dbg('v8-server-tts | ' + AGENT_NAME);
+// ─── Audio pipeline ─────────────────────────────────────────────────────────
+//
+//   Meeting audio → MediaStreamTrackProcessor → AudioData (Float32, 48kHz typical)
+//                 → downsample to 16kHz mono S16LE
+//                 → WebSocket(binary) → backend Pipecat
+//
+//   backend → WebSocket(binary PCM16 24kHz mono)
+//          → AudioBuffer queue → AudioContext destination → meeting hears bot
+//
+const INPUT_SAMPLE_RATE  = 16000;   // Deepgram wants 16kHz
+const OUTPUT_SAMPLE_RATE = 24000;   // ElevenLabs default
+const FRAME_SAMPLES      = 320;     // 20ms at 16kHz
 
-// ─── Trigger regex ──────────────────────────────────────────────────────────
-const namePattern = new RegExp(
-  '(?:hey\\s+|ok\\s+|okay\\s+|@)?(?<![a-z])' + escapeRegex(AGENT_NAME.toLowerCase()) + '(?![a-z])\\s*[,:]?\\s*(.+)', 'i'
-);
-
-// ─── State ──────────────────────────────────────────────────────────────────
-let isProcessing = false;
-let copilotWs = null;
-const QA_COOLDOWN_MS = 8000;
-let lastTriggerAt = 0;
-let transcriptBuffer = '';
-let transcriptSpeaker = '';
-let transcriptTimer = null;
-const TRANSCRIPT_BUFFER_MS = 1800;
+let ws = null;
+let audioCtx = null;            // for OUTPUT playback (24kHz)
+let nextPlayTime = 0;           // scheduling cursor for output audio chunks
+let captureTask = null;         // promise that pumps capture loop
 
 // ─── Backend WebSocket ──────────────────────────────────────────────────────
-// Audio is handled server-side (TTS + Recall inject_audio API).
-// This WS only receives text tokens for visual display.
-function fireTrigger(question) {
-  if (isProcessing) return;
-  if (Date.now() - lastTriggerAt < QA_COOLDOWN_MS) return;
+function connectBridge() {
+  const url = BACKEND_WS.replace(/\/$/, '') + '/ws/bot-bridge/' + MEETING_ID + '?token=' + encodeURIComponent(TOKEN);
+  dbg('connecting ' + url);
 
-  isProcessing = true;
-  lastTriggerAt = Date.now();
-  setStatus('Thinking...', 'thinking');
-
-  const wsUrl = BACKEND_WS + '/ws/copilot/' + MEETING_ID;
-  copilotWs = new WebSocket(wsUrl);
-
-  copilotWs.onopen = () => {
-    dbg('Q: ' + question.slice(0, 60));
-    lastLineEl.textContent = 'Q: ' + question;
-    copilotWs.send(JSON.stringify({
-      type: 'trigger', question: question, agent_id: AGENT_ID,
-    }));
-  };
-
-  let fullResponse = '';
-
-  copilotWs.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'token' && msg.text) {
-        fullResponse += msg.text + ' ';
-        lastLineEl.textContent = 'A: ' + fullResponse.slice(-80);
-        // First token = backend is speaking
-        if (!indicatorEl.classList.contains('speaking')) {
-          setStatus('Speaking...', 'speaking');
-        }
-      } else if (msg.type === 'done') {
-        dbg('Done, ' + fullResponse.length + ' chars');
-        isProcessing = false;
-        // Keep "Speaking..." until audio finishes on the meeting side;
-        // Use 100ms per char — accounts for TTS playback + buffer gaps between sentences
-        const estimatedSpeakMs = Math.max(5000, fullResponse.length * 100);
-        setTimeout(() => {
-          if (!isProcessing) setStatus('Listening...', 'listening');
-        }, estimatedSpeakMs);
-      } else if (msg.type === 'error') {
-        dbg('Error: ' + msg.message);
-        isProcessing = false;
-        setStatus('Error', 'error');
-      }
-    } catch (e) { dbg('parse: ' + e); }
-  };
-
-  copilotWs.onerror = () => {
-    dbg('WS error');
-    isProcessing = false;
-    setStatus('Connection error', 'error');
-    setTimeout(() => setStatus('Listening...', 'listening'), 3000);
-  };
-  copilotWs.onclose = () => {
-    if (isProcessing) { isProcessing = false; setStatus('Listening...', 'listening'); }
-  };
-}
-
-function interruptCopilot() {
-  if (copilotWs && copilotWs.readyState === WebSocket.OPEN) {
-    copilotWs.send(JSON.stringify({ type: 'interrupt' }));
-  }
-  isProcessing = false;
-  setStatus('Listening...', 'listening');
-}
-
-// ─── Transcript processing ──────────────────────────────────────────────────
-function processTranscriptBuffer() {
-  const fullText = transcriptBuffer.trim();
-  transcriptBuffer = '';
-  transcriptSpeaker = '';
-  transcriptTimer = null;
-  if (!fullText || isProcessing) return;
-
-  // Screenshot detection — visual feedback only (webhook handles actual capture)
-  const screenshotPhrases = ['take a screenshot', 'screenshot please', 'grab a screenshot', 'capture screen'];
-  if (screenshotPhrases.some(p => fullText.toLowerCase().includes(p))) {
-    dbg('Screenshot detected — webhook handling');
-    setStatus('Taking screenshot...', 'thinking');
-    setTimeout(() => { if (!isProcessing) setStatus('Listening...', 'listening'); }, 6000);
-    return;
-  }
-
-  // Q&A trigger — agent name detection
-  const match = namePattern.exec(fullText.toLowerCase());
-  if (match && match[1]) {
-    const question = match[1].trim();
-    if (question.length >= 5) {
-      dbg('TRIGGER: ' + question.slice(0, 60));
-      fireTrigger(question);
-    }
-  }
-}
-
-// ─── Recall transcript WebSocket ────────────────────────────────────────────
-function initTranscript() {
-  const ws = new WebSocket('wss://meeting-data.bot.recall.ai/api/v1/transcript');
+  ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
+    dbg('bridge open');
     setStatus('Listening...', 'listening');
-    lastLineEl.textContent = 'Connected';
-    dbg('transcript connected');
+    startCapture();
   };
 
-  ws.onmessage = (event) => {
-    try {
-      const raw = JSON.parse(event.data);
-      const inner = raw.transcript || raw.data || raw;
-      const words = inner.words || [];
-      const text = words.map(w => (typeof w === 'string' ? w : w.text || '')).join(' ').trim();
-      const speaker = (inner.participant || inner.speaker || {}).name || 'Unknown';
-      const isFinal = inner.is_final === true || raw.is_final === true;
-
-      if (!text) return;
-      lastLineEl.textContent = speaker + ': ' + text;
-
-      if (speaker.toLowerCase() === AGENT_NAME.toLowerCase()) return;
-
-      // Barge-in
-      if (isProcessing) {
-        interruptCopilot();
-        return;
-      }
-
-      if (transcriptSpeaker && transcriptSpeaker !== speaker && transcriptBuffer) {
-        processTranscriptBuffer();
-      }
-
-      transcriptSpeaker = speaker;
-      transcriptBuffer = text;
-
-      if (isFinal) {
-        if (transcriptTimer) { clearTimeout(transcriptTimer); transcriptTimer = null; }
-        processTranscriptBuffer();
-      } else {
-        if (transcriptTimer) clearTimeout(transcriptTimer);
-        transcriptTimer = setTimeout(() => processTranscriptBuffer(), TRANSCRIPT_BUFFER_MS);
-      }
-    } catch (e) { dbg('transcript: ' + e); }
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      try {
+        const msg = JSON.parse(e.data);
+        handleControlMessage(msg);
+      } catch (_) { /* ignore */ }
+      return;
+    }
+    // Binary: PCM16 24kHz mono from ElevenLabs
+    playPcm16(e.data);
   };
 
-  ws.onclose = () => { dbg('transcript reconnecting...'); setTimeout(initTranscript, 3000); };
-  ws.onerror = () => dbg('transcript error');
+  ws.onerror = () => { dbg('bridge error'); setStatus('Connection error', 'error'); };
+  ws.onclose = () => {
+    dbg('bridge closed; reconnecting in 3s');
+    setStatus('Reconnecting...', 'error');
+    setTimeout(connectBridge, 3000);
+  };
+}
+
+function handleControlMessage(msg) {
+  if (msg.type === 'bot_state') {
+    setStatus(msg.speaking ? 'Speaking...' : 'Listening...', msg.speaking ? 'speaking' : 'listening');
+  }
+}
+
+// ─── Capture: meeting audio → backend ───────────────────────────────────────
+async function startCapture() {
+  try {
+    // Recall auto-grants the mic permission inside the bot's Chrome.
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const track = stream.getAudioTracks()[0];
+    dbg('got meeting audio track');
+
+    const processor = new MediaStreamTrackProcessor({ track });
+    const reader = processor.readable.getReader();
+
+    // We resample by reading AudioData chunks (typically 48kHz) and feeding a
+    // small in-place downsampler. Simpler: pull at the source rate and
+    // average-downsample to 16kHz.
+    let leftover = new Float32Array(0);
+
+    captureTask = (async () => {
+      while (true) {
+        const { value: audioData, done } = await reader.read();
+        if (done) break;
+        if (ws == null || ws.readyState !== WebSocket.OPEN) {
+          audioData.close();
+          continue;
+        }
+        const srcRate = audioData.sampleRate;
+        const numFrames = audioData.numberOfFrames;
+        const channels = audioData.numberOfChannels;
+
+        // Pull Float32 from channel 0 only (meeting audio is mono in Recall)
+        const f32 = new Float32Array(numFrames);
+        audioData.copyTo(f32, { planeIndex: 0, format: 'f32', frameCount: numFrames });
+        audioData.close();
+
+        // Concatenate leftover + new
+        const combined = new Float32Array(leftover.length + f32.length);
+        combined.set(leftover);
+        combined.set(f32, leftover.length);
+
+        // Downsample by simple decimation: take every (srcRate / 16000)th sample.
+        // For higher quality use a proper polyphase filter; this is fine for STT.
+        const ratio = srcRate / INPUT_SAMPLE_RATE;
+        const outLen = Math.floor(combined.length / ratio);
+        const downsampled = new Float32Array(outLen);
+        for (let i = 0; i < outLen; i++) {
+          downsampled[i] = combined[Math.floor(i * ratio)];
+        }
+
+        // Stash unconsumed tail
+        const consumed = Math.floor(outLen * ratio);
+        leftover = combined.slice(consumed);
+
+        // Float32 → Int16 LE
+        const pcm16 = new Int16Array(downsampled.length);
+        for (let i = 0; i < downsampled.length; i++) {
+          const s = Math.max(-1, Math.min(1, downsampled[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        ws.send(pcm16.buffer);
+      }
+    })();
+  } catch (err) {
+    dbg('capture error: ' + err.message);
+    setStatus('No audio access', 'error');
+  }
+}
+
+// ─── Playback: backend → meeting ────────────────────────────────────────────
+function ensureAudioCtx() {
+  if (audioCtx) return audioCtx;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
+  nextPlayTime = audioCtx.currentTime;
+  return audioCtx;
+}
+
+function playPcm16(arrayBuffer) {
+  const ctx = ensureAudioCtx();
+  const int16 = new Int16Array(arrayBuffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 0x8000;
+
+  const buf = ctx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
+  buf.copyToChannel(float32, 0);
+
+  const source = ctx.createBufferSource();
+  source.buffer = buf;
+  source.connect(ctx.destination);
+
+  // Schedule chunks sequentially with no gap.
+  const now = ctx.currentTime;
+  const startAt = Math.max(nextPlayTime, now);
+  source.start(startAt);
+  nextPlayTime = startAt + buf.duration;
 }
 
 // ─── Init ───────────────────────────────────────────────────────────────────
-if (!MEETING_ID || !BACKEND_WS) {
+if (!MEETING_ID || !BACKEND_WS || !TOKEN) {
   setStatus('Missing configuration', 'error');
+  dbg('need meeting_id, backend_ws, token');
 } else {
-  initTranscript();
+  connectBridge();
 }
 </script>
 </body>

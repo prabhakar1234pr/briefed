@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useUser, SignOutButton } from "@clerk/nextjs";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -13,9 +13,17 @@ const navItems = [
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { isSignedIn } = useUser();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+  const isSignedIn = !!user;
 
   if (pathname === "/auth") return <>{children}</>;
+
+  async function handleSignOut() {
+    await signOut();
+    router.replace("/");
+    router.refresh();
+  }
 
   return (
     <div className="min-h-screen flex flex-col relative z-10">
@@ -147,22 +155,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   <span style={{ fontSize: 11 }}>●</span>
                   New meeting
                 </Link>
-                <SignOutButton>
-                  <button
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: 8,
-                      fontSize: 13,
-                      color: "var(--text-tertiary)",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      transition: "color 0.15s",
-                    }}
-                  >
-                    Sign out
-                  </button>
-                </SignOutButton>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    color: "var(--text-tertiary)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "color 0.15s",
+                  }}
+                >
+                  Sign out
+                </button>
               </>
             ) : (
               <Link

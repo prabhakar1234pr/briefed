@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { createSupabaseDbBrowserClient } from "@/lib/supabase-browser";
+import { useSupabaseDbClient } from "@/lib/supabase-browser";
 import type { Agent, AgentMode } from "@/types/agents";
 import {
   TTS_VOICES,
@@ -311,6 +311,7 @@ function DropdownItem<T extends string>({
 
 export function AgentForm(props: Props) {
   const router = useRouter();
+  const supabase = useSupabaseDbClient();
   const init = props.mode === "edit" ? props.initialAgent : null;
 
   const [name, setName] = useState(init?.name ?? "");
@@ -318,11 +319,14 @@ export function AgentForm(props: Props) {
   const [description, setDescription] = useState(init?.description ?? "");
   const [personaPrompt, setPersonaPrompt] = useState(init?.persona_prompt ?? "");
 
-  // Voice: migrate old Cartesia UUIDs to default Google TTS voice
+  // Voice: migrate legacy Google TTS / Cartesia values to an ElevenLabs voice.
+  // Valid v2 voices are ElevenLabs IDs (22-char alphanumeric); anything that
+  // starts with "en-" was a Google Neural2 voice, anything else not in the
+  // current list (e.g. old Cartesia UUIDs) also falls back to default.
   const rawVoice = init?.voice_id?.trim() ?? "";
-  const isCartesiaUuid = rawVoice && !rawVoice.startsWith("en-");
+  const isKnownElevenLabsVoice = TTS_VOICES.some((v) => v.id === rawVoice);
   const [voiceId, setVoiceId] = useState(
-    isCartesiaUuid ? DEFAULT_VOICE_ID : rawVoice || DEFAULT_VOICE_ID,
+    isKnownElevenLabsVoice ? rawVoice : DEFAULT_VOICE_ID,
   );
 
   const [botImageUrl, setBotImageUrl] = useState(init?.bot_image_url ?? "");
@@ -357,8 +361,6 @@ export function AgentForm(props: Props) {
     if (!trimmed) { setError("Agent name is required."); return; }
 
     setSaving(true);
-    const supabase = createSupabaseDbBrowserClient();
-    // Get user ID from WorkOS session
     const meResp = await fetch("/api/auth/me");
     const meData = await meResp.json();
     if (!meData.authenticated || !meData.user?.sub) { setError("Not signed in."); setSaving(false); return; }

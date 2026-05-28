@@ -1,9 +1,12 @@
 /**
- * Google Cloud TTS Neural2 & Studio voices for the meeting copilot.
- * These are high-quality voices that output clean MP3 natively.
+ * ElevenLabs voices for the v2 live voice pipeline.
  *
- * Voice IDs match Google Cloud TTS voice names (e.g. "en-US-Neural2-J").
- * Language: English only.
+ * IDs are ElevenLabs pre-made voice IDs (no clone or library import needed).
+ * They work with the `eleven_flash_v2_5` streaming model out of the box and
+ * are passed to `ElevenLabsTTSService` in backend-fastapi/app/pipeline/runner.py.
+ *
+ * Browse the full library at https://elevenlabs.io/app/voice-library — paste
+ * any voice's ID below to add more options.
  */
 
 export type TTSVoice = {
@@ -11,145 +14,130 @@ export type TTSVoice = {
   label: string;
   gender: "male" | "female";
   description: string;
-  category: "recommended" | "neural2" | "studio" | "wavenet";
+  category: "recommended" | "professional" | "casual" | "british";
 };
 
 export const TTS_VOICES: TTSVoice[] = [
   // ─── Recommended ────────────────────────────────────────────────────
   {
-    id: "en-US-Neural2-J",
-    label: "James",
-    gender: "male",
-    category: "recommended",
-    description: "Clear, confident male — great all-around default",
-  },
-  {
-    id: "en-US-Neural2-F",
-    label: "Fiona",
+    id: "21m00Tcm4TlvDq8ikWAM",
+    label: "Rachel",
     gender: "female",
     category: "recommended",
-    description: "Warm, professional female with clear enunciation",
+    description: "Calm, articulate American female — the all-purpose default",
   },
   {
-    id: "en-US-Neural2-D",
-    label: "David",
+    id: "ErXwobaYiN019PkySvjV",
+    label: "Antoni",
     gender: "male",
     category: "recommended",
-    description: "Natural, friendly male voice for conversations",
+    description: "Well-rounded American male, natural narration tone",
   },
   {
-    id: "en-US-Neural2-C",
-    label: "Claire",
+    id: "EXAVITQu4vr4xnSDxMaL",
+    label: "Sarah",
     gender: "female",
     category: "recommended",
-    description: "Bright, articulate female with modern tone",
+    description: "Soft, news-anchor American female with crisp delivery",
+  },
+  {
+    id: "TX3LPaxmHKxFdv7VOQHJ",
+    label: "Liam",
+    gender: "male",
+    category: "recommended",
+    description: "Articulate American male, confident professional vibe",
   },
 
-  // ─── Neural2 — high quality, low latency ────────────────────────────
+  // ─── Professional ───────────────────────────────────────────────────
   {
-    id: "en-US-Neural2-A",
-    label: "Alex",
+    id: "CwhRBWXzGAHq8TQ4Fs17",
+    label: "Roger",
     gender: "male",
-    category: "neural2",
-    description: "Deep, composed male for professional settings",
+    category: "professional",
+    description: "Confident American male, news/conference tone",
   },
   {
-    id: "en-US-Neural2-E",
-    label: "Emma",
+    id: "9BWtsMINqrJLrRacOk9x",
+    label: "Aria",
     gender: "female",
-    category: "neural2",
-    description: "Calm, clear female voice with steady delivery",
+    category: "professional",
+    description: "Expressive American female, social-media polished",
   },
   {
-    id: "en-US-Neural2-G",
-    label: "Grace",
-    gender: "female",
-    category: "neural2",
-    description: "Warm female with a natural, approachable tone",
-  },
-  {
-    id: "en-US-Neural2-H",
-    label: "Henry",
+    id: "nPczCjzI2devNBz1zQrb",
+    label: "Brian",
     gender: "male",
-    category: "neural2",
-    description: "Balanced male voice with confident delivery",
+    category: "professional",
+    description: "Deep American male, narration-grade authority",
   },
   {
-    id: "en-US-Neural2-I",
-    label: "Iris",
+    id: "cgSgspJ2msm6clMCkdW9",
+    label: "Jessica",
     gender: "female",
-    category: "neural2",
-    description: "Professional female with polished clarity",
+    category: "professional",
+    description: "Young expressive American female, conversational",
   },
 
-  // ─── Studio — highest quality, slightly more latency ────────────────
+  // ─── Casual ─────────────────────────────────────────────────────────
   {
-    id: "en-US-Studio-O",
-    label: "Oliver",
+    id: "bIHbv24MWmeRgasZH58o",
+    label: "Will",
     gender: "male",
-    category: "studio",
-    description: "Premium studio male — richest tone quality",
+    category: "casual",
+    description: "Friendly American male, approachable everyday voice",
   },
   {
-    id: "en-US-Studio-Q",
-    label: "Quinn",
-    gender: "female",
-    category: "studio",
-    description: "Premium studio female — natural and expressive",
-  },
-
-  // ─── WaveNet — natural-sounding alternatives ────────────────────────
-  {
-    id: "en-US-Wavenet-D",
-    label: "Derek",
+    id: "iP95p4xoKVk53GoZ742B",
+    label: "Chris",
     gender: "male",
-    category: "wavenet",
-    description: "Smooth male voice with natural inflection",
+    category: "casual",
+    description: "Casual American male — relaxed, conversational",
   },
   {
-    id: "en-US-Wavenet-F",
-    label: "Felicity",
+    id: "FGY2WhTYpPnrIDTdsKH5",
+    label: "Laura",
     gender: "female",
-    category: "wavenet",
-    description: "Clear female voice with conversational warmth",
-  },
-  {
-    id: "en-US-Wavenet-J",
-    label: "Jack",
-    gender: "male",
-    category: "wavenet",
-    description: "Friendly male with relaxed, natural delivery",
-  },
-  {
-    id: "en-US-Wavenet-H",
-    label: "Hannah",
-    gender: "female",
-    category: "wavenet",
-    description: "Approachable female with warm tone",
+    category: "casual",
+    description: "Upbeat American female, podcast-style energy",
   },
 
   // ─── British English ────────────────────────────────────────────────
   {
-    id: "en-GB-Neural2-B",
-    label: "Benedict",
+    id: "JBFqnCBsd6RMkjVDRZzb",
+    label: "George",
     gender: "male",
-    category: "neural2",
-    description: "British male — composed and articulate",
+    category: "british",
+    description: "Warm British male, mature narration tone",
   },
   {
-    id: "en-GB-Neural2-A",
-    label: "Amelia",
+    id: "Xb7hH8MSUJpSbSDYk0k2",
+    label: "Alice",
     gender: "female",
-    category: "neural2",
-    description: "British female — clear and professional",
+    category: "british",
+    description: "Confident British female, broadcaster polish",
+  },
+  {
+    id: "onwK4e9ZLuTAKqWW03F9",
+    label: "Daniel",
+    gender: "male",
+    category: "british",
+    description: "Authoritative British male, presenter delivery",
+  },
+  {
+    id: "pFZP5JQG7iQjIQuC4Bku",
+    label: "Lily",
+    gender: "female",
+    category: "british",
+    description: "Warm British female, friendly clarity",
   },
 ];
 
-export const DEFAULT_VOICE_ID = "en-US-Neural2-J";
+// Default = Rachel — the same value as ELEVENLABS_DEFAULT_VOICE in the backend
+export const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 
 export const VOICE_CATEGORIES = [
   { key: "recommended", label: "★ Recommended" },
-  { key: "neural2", label: "Neural2 — Fast & Clear" },
-  { key: "studio", label: "Studio — Premium Quality" },
-  { key: "wavenet", label: "WaveNet — Natural" },
+  { key: "professional", label: "Professional — Newsroom Polish" },
+  { key: "casual", label: "Casual — Friendly & Conversational" },
+  { key: "british", label: "British English" },
 ] as const;

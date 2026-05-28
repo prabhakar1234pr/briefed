@@ -46,13 +46,6 @@ def get_settings() -> dict[str, str | None]:
         # CORS (comma-separated origins)
         "cors_origins": os.getenv("CORS_ORIGINS", "").strip() or None,
 
-        # Cartesia TTS (for Output Media mode)
-        "cartesia_api_key": (
-            os.getenv("CARTESIA_API_KEY", "").strip()
-            or os.getenv("Cartesia_API_key", "").strip()  # compat with .env naming
-            or None
-        ),
-
         # Output Media bot page URL (GCS-hosted)
         "bot_page_url": (
             os.getenv("BOT_PAGE_URL", "https://storage.googleapis.com/briefed-bot-page/index.html").strip()
@@ -62,15 +55,39 @@ def get_settings() -> dict[str, str | None]:
         "unkey_root_key": os.getenv("UNKEY_ROOT_KEY", "").strip() or None,
         "unkey_api_id": os.getenv("UNKEY_API_ID", "").strip() or None,
 
-        # WorkOS (authentication)
-        "workos_api_key": (
-            os.getenv("WORKOS_API_KEY", "").strip()
-            or os.getenv("WorkOS_API_KEY", "").strip()  # compat with .env naming
-            or None
+        # ── v2 voice pipeline ────────────────────────────────────────────────
+        # Deepgram streaming STT (replaces Recall webhook STT)
+        "deepgram_api_key": os.getenv("DEEPGRAM_API_KEY", "").strip() or None,
+        "deepgram_model": os.getenv("DEEPGRAM_MODEL", "nova-3").strip() or "nova-3",
+
+        # ElevenLabs streaming TTS (replaces Google Cloud TTS for live voice)
+        "elevenlabs_api_key": os.getenv("ELEVENLABS_API_KEY", "").strip() or None,
+        "elevenlabs_model": os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip() or "eleven_flash_v2_5",
+        "elevenlabs_default_voice": os.getenv("ELEVENLABS_DEFAULT_VOICE", "21m00Tcm4TlvDq8ikWAM").strip() or "21m00Tcm4TlvDq8ikWAM",
+
+        # ── v2 observability ─────────────────────────────────────────────────
+        "langsmith_api_key": os.getenv("LANGSMITH_API_KEY", "").strip() or None,
+        "langsmith_project": os.getenv("LANGSMITH_PROJECT", "briefed-dev").strip() or "briefed-dev",
+        "langsmith_tracing": (os.getenv("LANGSMITH_TRACING", "").strip().lower() in {"1", "true", "yes"}),
+
+        # ── v2 memory ────────────────────────────────────────────────────────
+        # Supermemory replaces pgvector for unified doc + meeting + code memory
+        "supermemory_api_key": os.getenv("SUPERMEMORY_API_KEY", "").strip() or None,
+
+        # ── v2 auth (Firebase replaces Clerk) ────────────────────────────────
+        "firebase_project_id": os.getenv("FIREBASE_PROJECT_ID", "").strip() or None,
+        "firebase_client_email": os.getenv("FIREBASE_CLIENT_EMAIL", "").strip() or None,
+        # Multi-line PEM — env stores literal "\n", we unescape here.
+        "firebase_private_key": (
+            os.getenv("FIREBASE_PRIVATE_KEY", "").strip().replace("\\n", "\n") or None
         ),
-        "workos_client_id": (
-            os.getenv("WORKOS_CLIENT_ID", "").strip()
-            or os.getenv("workOS_ClientID", "").strip()  # compat with .env naming
-            or None
+
+        # ── v2 GitHub App (live code memory) ─────────────────────────────────
+        "github_app_id": os.getenv("GITHUB_APP_ID", "").strip() or None,
+        "github_app_private_key": (
+            os.getenv("GITHUB_APP_PRIVATE_KEY", "").strip().replace("\\n", "\n") or None
         ),
+        "github_app_webhook_secret": os.getenv("GITHUB_APP_WEBHOOK_SECRET", "").strip() or None,
+        # URL-safe name of your GitHub App (the slug in https://github.com/apps/<slug>)
+        "github_app_slug": os.getenv("GITHUB_APP_SLUG", "briefed").strip() or "briefed",
     }
