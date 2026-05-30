@@ -35,7 +35,7 @@ export function MeetingAsk({
   return (
     <div
       className="card"
-      style={{ padding: 22, background: "rgba(59,130,246,0.04)", border: "1px solid rgba(59,130,246,0.12)" }}
+      style={{ padding: 22, background: "rgba(255,138,0,0.06)", border: "1px solid rgba(255,138,0,0.2)" }}
     >
       <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.1em", color: "var(--text-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>
         Ask {agentName}

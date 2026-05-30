@@ -10,7 +10,6 @@ import {
   TTS_VOICES,
   DEFAULT_VOICE_ID,
   VOICE_CATEGORIES,
-  type TTSVoice,
 } from "@/lib/tts-voices";
 
 type Props =
@@ -67,8 +66,8 @@ function SectionHeader({ icon, title, desc }: { icon: string; title: string; des
           width: 36,
           height: 36,
           borderRadius: 10,
-          background: "rgba(124,58,237,0.1)",
-          border: "1px solid rgba(124,58,237,0.18)",
+          background: "rgba(255,138,0,0.1)",
+          border: "1px solid rgba(255,138,0,0.2)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -107,9 +106,9 @@ function Toggle({
         padding: "12px 16px",
         borderRadius: 10,
         border: "1px solid var(--border-subtle)",
-        background: checked ? "rgba(124,58,237,0.06)" : "rgba(255,255,255,0.02)",
+        background: checked ? "rgba(255,138,0,0.08)" : "rgba(255,255,255,0.6)",
         transition: "background 0.15s, border-color 0.15s",
-        borderColor: checked ? "rgba(124,58,237,0.22)" : "var(--border-subtle)",
+        borderColor: checked ? "rgba(255,138,0,0.24)" : "var(--border-subtle)",
       }}
     >
       <input
@@ -188,7 +187,7 @@ function CustomSelect<T extends string>({
           alignItems: "center",
           justifyContent: "space-between",
           transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
-          boxShadow: open ? "0 0 0 3px rgba(124,58,237,0.1)" : "none",
+          boxShadow: open ? "0 0 0 3px rgba(255,138,0,0.14)" : "none",
           textAlign: "left",
         }}
       >
@@ -290,7 +289,7 @@ function DropdownItem<T extends string>({
         border: "none",
         borderRadius: 8,
         background: isSelected
-          ? "rgba(124,58,237,0.12)"
+          ? "rgba(255,138,0,0.12)"
           : hovered
           ? "rgba(255,255,255,0.06)"
           : "transparent",
@@ -349,8 +348,8 @@ export function AgentForm(props: Props) {
   }, []);
 
   const modeOptions = [
-    { value: "copilot" as const, label: "Copilot — Live Q&A + context" },
-    { value: "proctor" as const, label: "Proctor — Integrity signals only" },
+    { value: "copilot" as const, label: "Copilot — Live Q&A + context memory" },
+    { value: "proctor" as const, label: "Proctor — Integrity signals" },
   ];
 
   async function handleSubmit(e: React.FormEvent) {
@@ -415,19 +414,19 @@ export function AgentForm(props: Props) {
       <div className="card anim-1" style={{ padding: 24 }}>
         <SectionHeader icon="◎" title="Identity" desc="How the agent presents itself in meetings" />
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Field label="Mode" hint="Copilot: live Q&A and context. Proctor: integrity signals only.">
+          <Field label="Mode" hint="Copilot: live Q&A and context. Proctor: integrity signals.">
             <CustomSelect
               value={agentMode}
               onChange={(v) => setAgentMode(v as AgentMode)}
               options={modeOptions}
             />
           </Field>
-          <Field label="Name *" hint="This name is used as the trigger phrase (e.g. 'Hey Briefed')">
+          <Field label="Name *" hint="This name is used as the trigger phrase (e.g. 'Hey Bora')">
             <input
               className="input-field"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Briefed, Scribe, Assistant…"
+              placeholder="e.g. Bora, Scribe, Assistant…"
             />
           </Field>
           <Field label="Description">
@@ -479,7 +478,7 @@ export function AgentForm(props: Props) {
                     <span
                       style={{
                         width: 6, height: 6, borderRadius: "50%",
-                        background: v?.gender === "female" ? "#f472b6" : "#a78bfa",
+                        background: v?.gender === "female" ? "#f472b6" : "#ff8a00",
                         flexShrink: 0,
                       }}
                     />

@@ -130,7 +130,7 @@ export default async function MeetingDetailPage({ params }: Props) {
               <p style={{ fontSize: 14, color: "var(--text-secondary)", lineHeight: 1.75 }}>{meeting.summary}</p>
             </div>
           ) : meeting.status === "completed" ? (
-            <div className="card anim-1" style={{ padding: 28, background: "rgba(124,58,237,0.04)", border: "1px solid rgba(124,58,237,0.12)" }}>
+            <div className="card anim-1" style={{ padding: 28, background: "rgba(255,138,0,0.06)", border: "1px solid rgba(255,138,0,0.2)" }}>
               <SL>AI Summary</SL>
               <p style={{ fontSize: 13, color: "var(--text-tertiary)", fontStyle: "italic" }}>
                 Summary not generated yet. Make sure GCP_PROJECT is set and Vertex AI is enabled.
@@ -156,10 +156,10 @@ export default async function MeetingDetailPage({ params }: Props) {
           {/* Copilot interactions */}
           {interactions && interactions.length > 0 && (
             <div className="card anim-2" style={{ padding: 28 }}>
-              <SL>Copilot interactions ({interactions.length})</SL>
+              <SL>Agent Bora interactions ({interactions.length})</SL>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {interactions.map((ix) => (
-                  <div key={ix.id} style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "rgba(124,58,237,0.03)" }}>
+                  <div key={ix.id} style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "rgba(255,138,0,0.05)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <span style={{ fontSize: 14, color: "var(--text-accent)" }}>
                         {interactionTypeIcon[ix.interaction_type] ?? "◎"}
@@ -180,7 +180,7 @@ export default async function MeetingDetailPage({ params }: Props) {
                     {(ix as { screenshot_url?: string | null }).screenshot_url ? (
                       <Image
                         src={(ix as { screenshot_url: string }).screenshot_url}
-                        alt="Copilot screenshot"
+                        alt="Agent Bora screenshot"
                         width={640}
                         height={360}
                         unoptimized
@@ -204,10 +204,10 @@ export default async function MeetingDetailPage({ params }: Props) {
           <div className="card anim-3" style={{ padding: 28 }}>
             <SL>Transcript</SL>
             {transcriptLines && transcriptLines.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 480, overflowY: "auto", background: "rgba(0,0,0,0.15)", borderRadius: 10, border: "1px solid var(--border-subtle)", padding: "16px 18px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 480, overflowY: "auto", background: "rgba(255,255,255,0.75)", borderRadius: 10, border: "1px solid var(--border-subtle)", padding: "16px 18px" }}>
                 {transcriptLines.map((line) => (
                   <div key={line.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: "#c4b5fd", flexShrink: 0, marginTop: 1 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(255,138,0,0.12)", border: "1px solid rgba(255,138,0,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: "#b55f00", flexShrink: 0, marginTop: 1 }}>
                       {(line.speaker_name ?? "?").slice(0, 2).toUpperCase()}
                     </div>
                     <div>
@@ -218,7 +218,7 @@ export default async function MeetingDetailPage({ params }: Props) {
                 ))}
               </div>
             ) : meeting.transcript_text ? (
-              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.75, background: "rgba(0,0,0,0.15)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "16px 18px", maxHeight: 400, overflowY: "auto" }}>
+              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.75, background: "rgba(255,255,255,0.75)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "16px 18px", maxHeight: 400, overflowY: "auto" }}>
                 {meeting.transcript_text}
               </pre>
             ) : (
@@ -260,7 +260,7 @@ export default async function MeetingDetailPage({ params }: Props) {
             </div>
           )}
 
-          {/* Ask Briefed — assistant-ui powered chat */}
+          {/* Ask Agent Bora — assistant-ui powered chat */}
           {agent && (
             <MeetingChat agentId={agent.id} agentName={agent.name} meetingId={id} meetingStatus={meeting.status} />
           )}

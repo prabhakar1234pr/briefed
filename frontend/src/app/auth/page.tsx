@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import {
@@ -8,6 +9,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  updateProfile,
 } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
@@ -26,9 +28,14 @@ function AuthPageInner() {
   const router = useRouter();
   const search = useSearchParams();
   const next = search.get("next") || "/";
+  const modeFromQuery = search.get("mode");
   const { user, loading } = useAuth();
 
-  const [mode, setMode] = useState<Mode>("signin");
+  const [mode, setMode] = useState<Mode>(
+    modeFromQuery === "signup" ? "signup" : "signin",
+  );
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -39,9 +46,15 @@ function AuthPageInner() {
     if (!loading && user) router.replace(next);
   }, [loading, user, next, router]);
 
-  async function syncSession() {
+  useEffect(() => {
+    if (modeFromQuery === "signup" || modeFromQuery === "signin") {
+      setMode(modeFromQuery);
+    }
+  }, [modeFromQuery]);
+
+  async function syncSession(forceRefresh = false) {
     const auth = getFirebaseAuth();
-    const idToken = await auth.currentUser?.getIdToken();
+    const idToken = await auth.currentUser?.getIdToken(forceRefresh);
     if (!idToken) return;
     await fetch("/api/auth/session", {
       method: "POST",
@@ -57,13 +70,24 @@ function AuthPageInner() {
     try {
       const auth = getFirebaseAuth();
       if (mode === "signup") {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const trimmedFirst = firstName.trim();
+        const trimmedLast = lastName.trim();
+        if (!trimmedFirst || !trimmedLast) {
+          setError("First name and last name are required.");
+          setSubmitting(false);
+          return;
+        }
+        const credential = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(credential.user, {
+          displayName: `${trimmedFirst} ${trimmedLast}`,
+        });
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
       // AuthProvider's onIdTokenChanged will also sync, but await once here
       // so the server cookie is set before we navigate.
-      await syncSession();
+      await syncSession(mode === "signup");
+      await fetch("/api/auth/me", { method: "GET" });
       router.replace(next);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Sign-in failed";
@@ -79,6 +103,7 @@ function AuthPageInner() {
     try {
       await signInWithPopup(getFirebaseAuth(), new GoogleAuthProvider());
       await syncSession();
+      await fetch("/api/auth/me", { method: "GET" });
       router.replace(next);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Google sign-in failed";
@@ -106,46 +131,38 @@ function AuthPageInner() {
             marginBottom: 40,
           }}
         >
-          <div
+          <span
             style={{
-              width: 44,
-              height: 44,
+              position: "relative",
+              width: 34,
+              height: 34,
+              flexShrink: 0,
               borderRadius: 12,
-              background: "linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)",
-              display: "flex",
+              overflow: "visible",
+              display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              boxShadow: "0 0 24px rgba(124,58,237,0.45)",
             }}
           >
-            <svg width="20" height="20" viewBox="0 0 14 14" fill="none" aria-hidden>
-              <circle cx="7" cy="7" r="2.5" fill="white" />
-              <path
-                d="M7 1.5C7 1.5 10.5 3.5 10.5 7C10.5 10.5 7 12.5 7 12.5"
-                stroke="white"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                opacity="0.6"
-              />
-              <path
-                d="M7 1.5C7 1.5 3.5 3.5 3.5 7C3.5 10.5 7 12.5 7 12.5"
-                stroke="white"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                opacity="0.6"
-              />
-            </svg>
-          </div>
+            <Image
+              src="/assets/favicon.png"
+              alt="Agent Bora icon"
+              width={34}
+              height={34}
+              unoptimized
+              style={{ borderRadius: 12, transform: "scale(3)", transformOrigin: "center" }}
+            />
+          </span>
           <span
             style={{
               fontFamily: "var(--font-display)",
               fontSize: 28,
-              fontWeight: 400,
+              fontWeight: 700,
               color: "var(--text-primary)",
               letterSpacing: "-0.02em",
             }}
           >
-            Briefed
+            Agent <span style={{ color: "#ff8a00" }}>B</span>ora
           </span>
         </Link>
 
@@ -163,7 +180,7 @@ function AuthPageInner() {
               style={{
                 fontFamily: "var(--font-display)",
                 fontSize: 22,
-                fontWeight: 400,
+                fontWeight: 700,
                 color: "var(--text-primary)",
                 marginBottom: 4,
                 letterSpacing: "-0.01em",
@@ -173,8 +190,8 @@ function AuthPageInner() {
             </h1>
             <p style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
               {mode === "signin"
-                ? "Welcome back to Briefed."
-                : "Spin up your first agent in seconds."}
+                ? "Welcome back to Agent Bora."
+                : "Set up your first agent in minutes."}
             </p>
           </div>
 
@@ -238,6 +255,28 @@ function AuthPageInner() {
             onSubmit={handleEmailSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
           >
+            {mode === "signup" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <input
+                  className="input-field"
+                  type="text"
+                  required
+                  autoComplete="given-name"
+                  placeholder="First name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+                <input
+                  className="input-field"
+                  type="text"
+                  required
+                  autoComplete="family-name"
+                  placeholder="Last name"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </div>
+            )}
             <input
               className="input-field"
               type="email"

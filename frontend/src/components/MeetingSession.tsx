@@ -129,7 +129,7 @@ export function MeetingSession({ agents }: { agents: AgentOption[] }) {
               style={{ cursor: "pointer" }}
             >
               {agents.map((a) => (
-                <option key={a.id} value={a.id} style={{ background: "#161b24" }}>
+                <option key={a.id} value={a.id} style={{ background: "#ffffff", color: "#0f1725" }}>
                   {a.name}
                 </option>
               ))}
@@ -157,7 +157,7 @@ export function MeetingSession({ agents }: { agents: AgentOption[] }) {
               padding: "14px 16px",
               borderRadius: 10,
               border: "1px solid var(--border-subtle)",
-              background: "rgba(255,255,255,0.02)",
+              background: "rgba(255,255,255,0.72)",
             }}
           >
             <label
@@ -303,7 +303,7 @@ export function MeetingSession({ agents }: { agents: AgentOption[] }) {
               overflowY: "auto",
               borderRadius: 10,
               border: "1px solid var(--border-subtle)",
-              background: "rgba(0,0,0,0.2)",
+              background: "rgba(255,255,255,0.75)",
               padding: "16px 18px",
               display: "flex",
               flexDirection: "column",
@@ -347,14 +347,14 @@ export function MeetingSession({ agents }: { agents: AgentOption[] }) {
                       width: 24,
                       height: 24,
                       borderRadius: "50%",
-                      background: "rgba(59,130,246,0.15)",
-                      border: "1px solid rgba(59,130,246,0.2)",
+                      background: "rgba(255,138,0,0.12)",
+                      border: "1px solid rgba(255,138,0,0.2)",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       fontSize: 9,
                       fontWeight: 600,
-                      color: "#93c5fd",
+                      color: "#b55f00",
                       flexShrink: 0,
                       marginTop: 1,
                     }}
@@ -397,7 +397,7 @@ export function MeetingSession({ agents }: { agents: AgentOption[] }) {
                   fontSize: 13,
                   color: "var(--text-secondary)",
                   lineHeight: 1.75,
-                  background: "rgba(0,0,0,0.2)",
+                  background: "rgba(255,255,255,0.75)",
                   border: "1px solid var(--border-subtle)",
                   borderRadius: 10,
                   padding: "16px 18px",

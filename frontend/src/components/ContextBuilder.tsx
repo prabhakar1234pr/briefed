@@ -135,7 +135,7 @@ export function ContextBuilder({ agentId }: { agentId: string }) {
                 fontSize: 13,
                 fontWeight: tab === t ? 500 : 400,
                 color: tab === t ? "var(--text-primary)" : "var(--text-tertiary)",
-                background: tab === t ? "rgba(255,255,255,0.1)" : "transparent",
+                background: tab === t ? "rgba(255,138,0,0.14)" : "transparent",
                 cursor: "pointer",
                 transition: "background 0.15s, color 0.15s",
                 fontFamily: "var(--font-sans)",
@@ -247,10 +247,10 @@ export function ContextBuilder({ agentId }: { agentId: string }) {
                 <div
                   style={{
                     width: 32, height: 32, borderRadius: 8,
-                    background: "rgba(45,212,191,0.1)",
-                    border: "1px solid rgba(45,212,191,0.15)",
+                    background: "rgba(255,138,0,0.1)",
+                    border: "1px solid rgba(255,138,0,0.2)",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 14, color: "#5eead4", flexShrink: 0,
+                    fontSize: 14, color: "#b55f00", flexShrink: 0,
                   }}
                 >
                   ◈

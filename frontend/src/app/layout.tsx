@@ -4,8 +4,8 @@ import { Shell } from "@/components/Shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Briefed - AI Meeting Intelligence",
-  description: "Your AI agent that joins meetings, answers questions, and never lets context slip.",
+  title: "Agent Bora",
+  description: "Agent Bora joins meetings, remembers context, and turns conversations into action.",
 };
 
 export default function RootLayout({

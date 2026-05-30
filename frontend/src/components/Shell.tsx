@@ -1,13 +1,14 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 
 const navItems = [
-  { href: "/", label: "Home" },
+  { href: "/home", label: "Home" },
   { href: "/agents", label: "Agents" },
-  { href: "/meeting", label: "Start" },
+  { href: "/meeting", label: "Start meeting" },
   { href: "/meetings", label: "Meetings" },
 ];
 
@@ -17,7 +18,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
   const isSignedIn = !!user;
 
-  if (pathname === "/auth") return <>{children}</>;
+  const isPublicShellless =
+    pathname === "/" || pathname === "/auth" || pathname.startsWith("/share/");
+  if (isPublicShellless) return <>{children}</>;
 
   async function handleSignOut() {
     await signOut();
@@ -26,166 +29,137 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col relative z-10">
-      {/* Nav */}
-      <header
+    <div
+      className="min-h-screen relative z-10"
+      style={{ display: "grid", gridTemplateColumns: "240px minmax(0, 1fr)" }}
+    >
+      <aside
         style={{
+          borderRight: "1px solid var(--border-subtle)",
+          background: "rgba(255,255,255,0.82)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          padding: "18px 14px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 18,
           position: "sticky",
           top: 0,
-          zIndex: 50,
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          background: "rgba(9,9,11,0.85)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
+          height: "100vh",
         }}
       >
-        <div
+        <Link
+          href={isSignedIn ? "/home" : "/"}
           style={{
-            maxWidth: 1100,
-            margin: "0 auto",
-            padding: "0 24px",
-            height: 56,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            gap: 8,
+            textDecoration: "none",
+            padding: "6px 8px",
           }}
         >
-          {/* Logo */}
-          <Link
-            href="/"
+          <span
             style={{
-              display: "flex",
+              position: "relative",
+              width: 34,
+              height: 34,
+              flexShrink: 0,
+              borderRadius: 8,
+              overflow: "visible",
+              display: "inline-flex",
               alignItems: "center",
-              gap: 10,
-              textDecoration: "none",
+              justifyContent: "center",
             }}
           >
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 8,
-                background: "linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 0 16px rgba(124,58,237,0.4)",
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="2.5" fill="white" />
-                <path
-                  d="M7 1.5C7 1.5 10.5 3.5 10.5 7C10.5 10.5 7 12.5 7 12.5"
-                  stroke="white"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  opacity="0.6"
-                />
-                <path
-                  d="M7 1.5C7 1.5 3.5 3.5 3.5 7C3.5 10.5 7 12.5 7 12.5"
-                  stroke="white"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                  opacity="0.6"
-                />
-              </svg>
-            </div>
-            <span
-              style={{
-                fontFamily: "var(--font-sans)",
-                fontSize: 16,
-                fontWeight: 500,
-                color: "var(--text-primary)",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              Briefed
-            </span>
-          </Link>
+            <Image
+              src="/assets/favicon.png"
+              alt="Agent Bora mark"
+              width={34}
+              height={34}
+              unoptimized
+              style={{ borderRadius: 8, transform: "scale(3)", transformOrigin: "center" }}
+            />
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-sans)",
+              fontSize: 16,
+              fontWeight: 700,
+              color: "var(--text-primary)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Agent <span style={{ color: "#ff8a00" }}>B</span>ora
+          </span>
+        </Link>
 
-          {/* Nav links */}
-          <nav style={{ display: "flex", alignItems: "center", gap: 2 }}>
-            {navItems.map((item) => {
-              const active =
-                item.href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: active ? 500 : 400,
-                    color: active ? "var(--text-primary)" : "var(--text-tertiary)",
-                    background: active ? "rgba(255,255,255,0.07)" : "transparent",
-                    textDecoration: "none",
-                    transition: "color 0.15s, background 0.15s",
-                  }}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Right side */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isSignedIn ? (
-              <>
-                <Link
-                  href="/meeting"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    background: "var(--accent)",
-                    color: "#fff",
-                    borderRadius: 8,
-                    padding: "6px 14px",
-                    fontSize: 13,
-                    fontWeight: 500,
-                    textDecoration: "none",
-                    boxShadow: "0 0 16px rgba(124,58,237,0.3)",
-                    transition: "background 0.15s",
-                  }}
-                >
-                  <span style={{ fontSize: 11 }}>●</span>
-                  New meeting
-                </Link>
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  style={{
-                    padding: "5px 12px",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    color: "var(--text-tertiary)",
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    transition: "color 0.15s",
-                  }}
-                >
-                  Sign out
-                </button>
-              </>
-            ) : (
+        <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {navItems.map((item) => {
+            const active =
+              item.href === "/home"
+                ? pathname === "/home"
+                : pathname.startsWith(item.href);
+            return (
               <Link
-                href="/auth"
-                className="btn-primary"
-                style={{ fontSize: 13, padding: "8px 18px", textDecoration: "none" }}
+                key={item.href}
+                href={item.href}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                  background: active ? "rgba(255,138,0,0.14)" : "transparent",
+                  textDecoration: "none",
+                  transition: "color 0.15s, background 0.15s",
+                }}
               >
-                Sign in
+                {item.label}
               </Link>
-            )}
-          </div>
-        </div>
-      </header>
+            );
+          })}
+        </nav>
 
-      <main style={{ flex: 1, position: "relative", zIndex: 1 }}>
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+          {isSignedIn ? (
+            <>
+              <div
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.74)",
+                  padding: "10px 12px",
+                }}
+              >
+                <p style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }}>
+                  Signed in as
+                </p>
+                <p style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 600 }}>
+                  {user.displayName || user.email || "User"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="btn-secondary"
+                style={{ justifyContent: "center" }}
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/auth?mode=signin"
+              className="btn-primary"
+              style={{ fontSize: 13, textDecoration: "none", justifyContent: "center" }}
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
+      </aside>
+
+      <main style={{ position: "relative", zIndex: 1 }}>
         {children}
       </main>
     </div>

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import type { MeetingStatus } from "@/types/agents";
 
@@ -94,10 +95,31 @@ export default async function SharedMeetingPage({ params }: Props) {
       {/* Header */}
       <div className="anim-0" style={{ marginBottom: 36, textAlign: "center" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #7c3aed 0%, #6366f1 100%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="2.5" fill="white" /><path d="M7 1.5C7 1.5 10.5 3.5 10.5 7C10.5 10.5 7 12.5 7 12.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" /><path d="M7 1.5C7 1.5 3.5 3.5 3.5 7C3.5 10.5 7 12.5 7 12.5" stroke="white" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" /></svg>
-          </div>
-          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-tertiary)" }}>Briefed</span>
+          <span
+            style={{
+              position: "relative",
+              width: 34,
+              height: 34,
+              flexShrink: 0,
+              borderRadius: 8,
+              overflow: "visible",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Image
+              src="/assets/favicon.png"
+              alt="Agent Bora mark"
+              width={34}
+              height={34}
+              unoptimized
+              style={{ borderRadius: 8, transform: "scale(3)", transformOrigin: "center" }}
+            />
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-tertiary)" }}>
+            Agent <span style={{ color: "#ff8a00" }}>B</span>ora
+          </span>
         </div>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 400, color: "var(--text-primary)", marginBottom: 8 }}>
           Meeting Brief — {domain}
@@ -147,13 +169,13 @@ export default async function SharedMeetingPage({ params }: Props) {
           </div>
         )}
 
-        {/* Copilot Interactions */}
+        {/* Agent Bora Interactions */}
         {interactions && interactions.length > 0 && (
           <div className="card anim-2" style={{ padding: 28 }}>
-            <SL>Copilot Interactions ({interactions.length})</SL>
+            <SL>Agent Bora Interactions ({interactions.length})</SL>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {interactions.map((ix) => (
-                <div key={ix.id} style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "rgba(124,58,237,0.03)" }}>
+                <div key={ix.id} style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "rgba(255,138,0,0.05)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 14, color: "var(--text-accent)" }}>
                       {interactionTypeIcon[ix.interaction_type] ?? "◎"}
@@ -181,10 +203,10 @@ export default async function SharedMeetingPage({ params }: Props) {
         <div className="card anim-3" style={{ padding: 28 }}>
           <SL>Transcript</SL>
           {transcriptLines && transcriptLines.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 480, overflowY: "auto", background: "rgba(0,0,0,0.15)", borderRadius: 10, border: "1px solid var(--border-subtle)", padding: "16px 18px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 480, overflowY: "auto", background: "rgba(255,255,255,0.75)", borderRadius: 10, border: "1px solid var(--border-subtle)", padding: "16px 18px" }}>
               {transcriptLines.map((line) => (
                 <div key={line.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.18)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: "#a78bfa", flexShrink: 0, marginTop: 1 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(255,138,0,0.12)", border: "1px solid rgba(255,138,0,0.18)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: "#b55f00", flexShrink: 0, marginTop: 1 }}>
                     {(line.speaker_name ?? "?").slice(0, 2).toUpperCase()}
                   </div>
                   <div>
@@ -195,7 +217,7 @@ export default async function SharedMeetingPage({ params }: Props) {
               ))}
             </div>
           ) : meeting.transcript_text ? (
-            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.75, background: "rgba(0,0,0,0.15)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "16px 18px", maxHeight: 400, overflowY: "auto" }}>
+            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.75, background: "rgba(255,255,255,0.75)", border: "1px solid var(--border-subtle)", borderRadius: 10, padding: "16px 18px", maxHeight: 400, overflowY: "auto" }}>
               {meeting.transcript_text}
             </pre>
           ) : (
@@ -225,7 +247,7 @@ export default async function SharedMeetingPage({ params }: Props) {
       {/* Footer */}
       <div style={{ textAlign: "center", marginTop: 48, paddingTop: 24, borderTop: "1px solid var(--border-subtle)" }}>
         <p style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
-          Powered by <Link href="/" style={{ color: "var(--text-accent)", textDecoration: "none" }}>Briefed</Link> — AI Meeting Intelligence
+          Powered by <Link href="/" style={{ color: "var(--text-accent)", textDecoration: "none" }}>Agent Bora</Link> — AI Meeting Intelligence
         </p>
       </div>
     </div>

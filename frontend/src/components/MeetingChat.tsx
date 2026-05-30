@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   useExternalStoreRuntime,
   type ThreadMessageLike,
@@ -22,7 +22,6 @@ type Props = {
 export function MeetingChat({ agentId, agentName, meetingId }: Props) {
   const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const idCounter = useRef(0);
 
   const onNew = useCallback(
     async (message: AppendMessage) => {
@@ -110,8 +109,8 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
 
       <style>{`
         .meeting-chat-container {
-          background: rgba(59,130,246,0.04);
-          border: 1px solid rgba(59,130,246,0.12);
+          background: rgba(255,138,0,0.06);
+          border: 1px solid rgba(255,138,0,0.2);
           border-radius: var(--radius-lg, 12px);
           padding: 22px;
           display: flex;
@@ -164,8 +163,8 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
           max-width: 95%;
         }
         .meeting-chat-msg-user {
-          background: rgba(59,130,246,0.15);
-          border: 1px solid rgba(59,130,246,0.2);
+          background: rgba(255,138,0,0.14);
+          border: 1px solid rgba(255,138,0,0.22);
           color: var(--text-primary);
           align-self: flex-end;
         }
@@ -192,7 +191,7 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
         }
         .meeting-chat-input {
           flex: 1;
-          background: var(--bg-elevated, #161b24);
+          background: rgba(255,255,255,0.95);
           border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
           border-radius: 8px;
           padding: 10px 12px;
@@ -203,8 +202,8 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
           font-family: var(--font-sans);
         }
         .meeting-chat-input:focus {
-          border-color: var(--accent, #3b82f6);
-          box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+          border-color: var(--accent, #ff8a00);
+          box-shadow: 0 0 0 2px rgba(255,138,0,0.15);
         }
         .meeting-chat-input::placeholder {
           color: var(--text-tertiary);
@@ -212,7 +211,7 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
         .meeting-chat-send {
           flex-shrink: 0;
           padding: 10px 14px;
-          background: var(--accent, #3b82f6);
+          background: var(--accent, #ff8a00);
           color: white;
           border: none;
           border-radius: 8px;
@@ -220,10 +219,10 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
           font-size: 14px;
           font-weight: 500;
           transition: background 0.15s;
-          box-shadow: 0 0 16px rgba(59,130,246,0.25);
+          box-shadow: 0 10px 20px rgba(255,138,0,0.25);
         }
         .meeting-chat-send:hover {
-          background: #2563eb;
+          background: #ff7a00;
         }
         .meeting-chat-send:disabled {
           opacity: 0.5;
