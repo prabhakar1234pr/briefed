@@ -66,8 +66,8 @@ function SectionHeader({ icon, title, desc }: { icon: string; title: string; des
           width: 36,
           height: 36,
           borderRadius: 10,
-          background: "rgba(255,138,0,0.1)",
-          border: "1px solid rgba(255,138,0,0.2)",
+          background: "rgba(37,99,235,0.1)",
+          border: "1px solid rgba(37,99,235,0.2)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -82,47 +82,6 @@ function SectionHeader({ icon, title, desc }: { icon: string; title: string; des
         <p style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{desc}</p>
       </div>
     </div>
-  );
-}
-
-function Toggle({
-  checked,
-  onChange,
-  label,
-  desc,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-  desc: string;
-}) {
-  return (
-    <label
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: 12,
-        cursor: "pointer",
-        padding: "12px 16px",
-        borderRadius: 10,
-        border: "1px solid var(--border-subtle)",
-        background: checked ? "rgba(255,138,0,0.08)" : "rgba(255,255,255,0.6)",
-        transition: "background 0.15s, border-color 0.15s",
-        borderColor: checked ? "rgba(255,138,0,0.24)" : "var(--border-subtle)",
-      }}
-    >
-      <input
-        type="checkbox"
-        className="check"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{ marginTop: 2 }}
-      />
-      <div>
-        <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>{label}</p>
-        <p style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>{desc}</p>
-      </div>
-    </label>
   );
 }
 
@@ -187,7 +146,7 @@ function CustomSelect<T extends string>({
           alignItems: "center",
           justifyContent: "space-between",
           transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
-          boxShadow: open ? "0 0 0 3px rgba(255,138,0,0.14)" : "none",
+          boxShadow: open ? "0 0 0 3px rgba(37,99,235,0.14)" : "none",
           textAlign: "left",
         }}
       >
@@ -289,7 +248,7 @@ function DropdownItem<T extends string>({
         border: "none",
         borderRadius: 8,
         background: isSelected
-          ? "rgba(255,138,0,0.12)"
+          ? "rgba(37,99,235,0.12)"
           : hovered
           ? "rgba(255,255,255,0.06)"
           : "transparent",
@@ -314,7 +273,7 @@ export function AgentForm(props: Props) {
   const init = props.mode === "edit" ? props.initialAgent : null;
 
   const [name, setName] = useState(init?.name ?? "");
-  const [agentMode, setAgentMode] = useState<AgentMode>(init?.mode ?? "copilot");
+  const agentMode: AgentMode = init?.mode ?? "copilot";
   const [description, setDescription] = useState(init?.description ?? "");
   const [personaPrompt, setPersonaPrompt] = useState(init?.persona_prompt ?? "");
 
@@ -329,9 +288,9 @@ export function AgentForm(props: Props) {
   );
 
   const [botImageUrl, setBotImageUrl] = useState(init?.bot_image_url ?? "");
-  const [proactiveFactCheck, setProactiveFactCheck] = useState(init?.proactive_fact_check ?? true);
-  const [screenshotOnRequest, setScreenshotOnRequest] = useState(init?.screenshot_on_request ?? true);
-  const [sendPostMeetingEmail, setSendPostMeetingEmail] = useState(init?.send_post_meeting_email ?? true);
+  const proactiveFactCheck = init?.proactive_fact_check ?? true;
+  const screenshotOnRequest = init?.screenshot_on_request ?? true;
+  const sendPostMeetingEmail = init?.send_post_meeting_email ?? true;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -346,11 +305,6 @@ export function AgentForm(props: Props) {
       };
     });
   }, []);
-
-  const modeOptions = [
-    { value: "copilot" as const, label: "Copilot — Live Q&A + context memory" },
-    { value: "proctor" as const, label: "Proctor — Integrity signals" },
-  ];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -414,13 +368,6 @@ export function AgentForm(props: Props) {
       <div className="card anim-1" style={{ padding: 24 }}>
         <SectionHeader icon="◎" title="Identity" desc="How the agent presents itself in meetings" />
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Field label="Mode" hint="Copilot: live Q&A and context. Proctor: integrity signals.">
-            <CustomSelect
-              value={agentMode}
-              onChange={(v) => setAgentMode(v as AgentMode)}
-              options={modeOptions}
-            />
-          </Field>
           <Field label="Name *" hint="This name is used as the trigger phrase (e.g. 'Hey Bora')">
             <input
               className="input-field"
@@ -478,7 +425,7 @@ export function AgentForm(props: Props) {
                     <span
                       style={{
                         width: 6, height: 6, borderRadius: "50%",
-                        background: v?.gender === "female" ? "#f472b6" : "#ff8a00",
+                        background: v?.gender === "female" ? "#f472b6" : "#2563eb",
                         flexShrink: 0,
                       }}
                     />
@@ -508,31 +455,6 @@ export function AgentForm(props: Props) {
               </p>
             )}
           </Field>
-        </div>
-      </div>
-
-      {/* ── Capabilities ─────────────────────────────────────────────── */}
-      <div className="card anim-3" style={{ padding: 24 }}>
-        <SectionHeader icon="◉" title="Capabilities" desc="What the agent is allowed to do during meetings" />
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Toggle
-            checked={proactiveFactCheck}
-            onChange={setProactiveFactCheck}
-            label="Proactive fact-checking"
-            desc="Automatically detect and correct factual errors spoken during the meeting."
-          />
-          <Toggle
-            checked={screenshotOnRequest}
-            onChange={setScreenshotOnRequest}
-            label="Screenshots on request"
-            desc="Listen for 'take a screenshot' and capture the meeting screen."
-          />
-          <Toggle
-            checked={sendPostMeetingEmail}
-            onChange={setSendPostMeetingEmail}
-            label="Post-meeting email"
-            desc="Send a summary email with action items when the meeting ends."
-          />
         </div>
       </div>
 

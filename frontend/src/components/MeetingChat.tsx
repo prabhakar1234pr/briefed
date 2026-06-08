@@ -109,8 +109,8 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
 
       <style>{`
         .meeting-chat-container {
-          background: rgba(255,138,0,0.06);
-          border: 1px solid rgba(255,138,0,0.2);
+          background: rgba(37,99,235,0.06);
+          border: 1px solid rgba(37,99,235,0.2);
           border-radius: var(--radius-lg, 12px);
           padding: 22px;
           display: flex;
@@ -163,8 +163,8 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
           max-width: 95%;
         }
         .meeting-chat-msg-user {
-          background: rgba(255,138,0,0.14);
-          border: 1px solid rgba(255,138,0,0.22);
+          background: rgba(37,99,235,0.14);
+          border: 1px solid rgba(37,99,235,0.22);
           color: var(--text-primary);
           align-self: flex-end;
         }
@@ -202,8 +202,8 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
           font-family: var(--font-sans);
         }
         .meeting-chat-input:focus {
-          border-color: var(--accent, #ff8a00);
-          box-shadow: 0 0 0 2px rgba(255,138,0,0.15);
+          border-color: var(--accent, #2563eb);
+          box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
         }
         .meeting-chat-input::placeholder {
           color: var(--text-tertiary);
@@ -211,7 +211,7 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
         .meeting-chat-send {
           flex-shrink: 0;
           padding: 10px 14px;
-          background: var(--accent, #ff8a00);
+          background: var(--accent, #2563eb);
           color: white;
           border: none;
           border-radius: 8px;
@@ -219,10 +219,10 @@ export function MeetingChat({ agentId, agentName, meetingId }: Props) {
           font-size: 14px;
           font-weight: 500;
           transition: background 0.15s;
-          box-shadow: 0 10px 20px rgba(255,138,0,0.25);
+          box-shadow: 0 10px 20px rgba(37,99,235,0.25);
         }
         .meeting-chat-send:hover {
-          background: #ff7a00;
+          background: var(--accent-hover, #1d4ed8);
         }
         .meeting-chat-send:disabled {
           opacity: 0.5;

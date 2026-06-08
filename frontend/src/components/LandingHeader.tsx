@@ -5,7 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import styles from "@/app/page.module.css";
 
-const navItems = ["Features", "Use Cases", "Pricing", "Docs", "Resources"];
+const navItems = [
+  { label: "Features", href: "/#features" },
+  { label: "Pricing", href: "/#pricing" },
+  { label: "Docs", href: "/#docs" },
+];
 
 export default function LandingHeader() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -22,34 +26,39 @@ export default function LandingHeader() {
 
   return (
     <header
-      className={`${styles.flowTopHeader} ${styles.pageHeader} ${
+      className={`${styles.pageHeader} ${
         isScrolled ? styles.pageHeaderScrolled : styles.pageHeaderTop
       } anim-0`}
     >
-      <div className={styles.brand}>
+      <Link href="/" className={styles.brand} style={{ textDecoration: "none" }}>
         <span className={styles.brandIconBox}>
           <Image
-            src="/assets/favicon.png"
-            alt="Agent Bora mark"
-            width={34}
-            height={34}
+            src="/assets/logo-b.png"
+            alt="Agent Bora logo"
+            width={40}
+            height={40}
             unoptimized
             priority
             className={styles.brandIcon}
-            style={{ borderRadius: 10 }}
           />
         </span>
         <span>
-          Agent <span className={styles.brandB}>B</span>ora
+          Agent <span className={styles.brandB}>Bora</span>
         </span>
+      </Link>
+
+      <div className={styles.headerRight}>
+        <nav className={styles.flowTopNav}>
+          {navItems.map((item) => (
+            <Link key={item.label} href={item.href} className={styles.flowTopLink}>
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <Link href="/auth?mode=signin" className={styles.buttonSecondary}>
+          Login
+        </Link>
       </div>
-      <nav className={styles.flowTopNav}>
-        {navItems.map((item) => (
-          <Link key={item} href="/" className={styles.flowTopLink}>
-            {item}
-          </Link>
-        ))}
-      </nav>
     </header>
   );
 }

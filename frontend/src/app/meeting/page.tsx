@@ -15,7 +15,7 @@ export default async function MeetingPage() {
     <div style={{ maxWidth: 780, margin: "0 auto", padding: "48px 24px" }}>
       <div className="anim-0" style={{ marginBottom: 36 }}>
         <Link
-          href="/home"
+          href="/meetings"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -26,7 +26,7 @@ export default async function MeetingPage() {
             marginBottom: 20,
           }}
         >
-          ← Dashboard
+          ← Meetings
         </Link>
         <h1
           style={{
@@ -55,8 +55,8 @@ export default async function MeetingPage() {
               width: 56,
               height: 56,
               borderRadius: 16,
-              background: "rgba(255,138,0,0.1)",
-              border: "1px solid rgba(255,138,0,0.2)",
+              background: "rgba(37,99,235,0.1)",
+              border: "1px solid rgba(37,99,235,0.2)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",

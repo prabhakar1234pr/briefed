@@ -12,6 +12,7 @@ const SESSION_COOKIE_NAME = "__session";
 const PUBLIC_PREFIXES = [
   "/auth",
   "/share",
+  "/docs",
   "/api/auth/session",
   "/api/auth/me",
 ];

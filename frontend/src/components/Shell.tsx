@@ -8,7 +8,6 @@ import { useAuth } from "@/components/AuthProvider";
 const navItems = [
   { href: "/home", label: "Home" },
   { href: "/agents", label: "Agents" },
-  { href: "/meeting", label: "Start meeting" },
   { href: "/meetings", label: "Meetings" },
 ];
 
@@ -19,7 +18,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const isSignedIn = !!user;
 
   const isPublicShellless =
-    pathname === "/" || pathname === "/auth" || pathname.startsWith("/share/");
+    pathname === "/" ||
+    pathname === "/auth" ||
+    pathname.startsWith("/share/") ||
+    pathname.startsWith("/docs");
   if (isPublicShellless) return <>{children}</>;
 
   async function handleSignOut() {
@@ -64,20 +66,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
               width: 34,
               height: 34,
               flexShrink: 0,
-              borderRadius: 8,
-              overflow: "visible",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
             <Image
-              src="/assets/favicon.png"
-              alt="Agent Bora mark"
+              src="/assets/logo-b.png"
+              alt="Agent Bora logo"
               width={34}
               height={34}
               unoptimized
-              style={{ borderRadius: 8, transform: "scale(3)", transformOrigin: "center" }}
+              style={{ objectFit: "contain" }}
             />
           </span>
           <span
@@ -89,7 +89,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
               letterSpacing: "-0.01em",
             }}
           >
-            Agent <span style={{ color: "#ff8a00" }}>B</span>ora
+            Agent{" "}
+            <span
+              style={{
+                background: "var(--brand-grad)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Bora
+            </span>
           </span>
         </Link>
 
@@ -109,7 +119,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   fontSize: 13,
                   fontWeight: active ? 600 : 500,
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                  background: active ? "rgba(255,138,0,0.14)" : "transparent",
+                  background: active ? "rgba(37,99,235,0.12)" : "transparent",
                   textDecoration: "none",
                   transition: "color 0.15s, background 0.15s",
                 }}

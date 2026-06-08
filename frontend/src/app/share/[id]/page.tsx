@@ -98,27 +98,35 @@ export default async function SharedMeetingPage({ params }: Props) {
           <span
             style={{
               position: "relative",
-              width: 34,
-              height: 34,
+              width: 30,
+              height: 30,
               flexShrink: 0,
-              borderRadius: 8,
-              overflow: "visible",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
             <Image
-              src="/assets/favicon.png"
-              alt="Agent Bora mark"
-              width={34}
-              height={34}
+              src="/assets/logo-b.png"
+              alt="Agent Bora logo"
+              width={30}
+              height={30}
               unoptimized
-              style={{ borderRadius: 8, transform: "scale(3)", transformOrigin: "center" }}
+              style={{ objectFit: "contain" }}
             />
           </span>
           <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-tertiary)" }}>
-            Agent <span style={{ color: "#ff8a00" }}>B</span>ora
+            Agent{" "}
+            <span
+              style={{
+                background: "var(--brand-grad)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Bora
+            </span>
           </span>
         </div>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 400, color: "var(--text-primary)", marginBottom: 8 }}>
@@ -175,7 +183,7 @@ export default async function SharedMeetingPage({ params }: Props) {
             <SL>Agent Bora Interactions ({interactions.length})</SL>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {interactions.map((ix) => (
-                <div key={ix.id} style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "rgba(255,138,0,0.05)" }}>
+                <div key={ix.id} style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid var(--border-subtle)", background: "rgba(37,99,235,0.05)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 14, color: "var(--text-accent)" }}>
                       {interactionTypeIcon[ix.interaction_type] ?? "◎"}
@@ -206,7 +214,7 @@ export default async function SharedMeetingPage({ params }: Props) {
             <div style={{ display: "flex", flexDirection: "column", gap: 12, maxHeight: 480, overflowY: "auto", background: "rgba(255,255,255,0.75)", borderRadius: 10, border: "1px solid var(--border-subtle)", padding: "16px 18px" }}>
               {transcriptLines.map((line) => (
                 <div key={line.id} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(255,138,0,0.12)", border: "1px solid rgba(255,138,0,0.18)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: "#b55f00", flexShrink: 0, marginTop: 1 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(37,99,235,0.12)", border: "1px solid rgba(37,99,235,0.18)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 600, color: "#1d4ed8", flexShrink: 0, marginTop: 1 }}>
                     {(line.speaker_name ?? "?").slice(0, 2).toUpperCase()}
                   </div>
                   <div>

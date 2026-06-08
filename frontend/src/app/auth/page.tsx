@@ -134,23 +134,21 @@ function AuthPageInner() {
           <span
             style={{
               position: "relative",
-              width: 34,
-              height: 34,
+              width: 40,
+              height: 40,
               flexShrink: 0,
-              borderRadius: 12,
-              overflow: "visible",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
             <Image
-              src="/assets/favicon.png"
-              alt="Agent Bora icon"
-              width={34}
-              height={34}
+              src="/assets/logo-b.png"
+              alt="Agent Bora logo"
+              width={40}
+              height={40}
               unoptimized
-              style={{ borderRadius: 12, transform: "scale(3)", transformOrigin: "center" }}
+              style={{ objectFit: "contain" }}
             />
           </span>
           <span
@@ -162,7 +160,17 @@ function AuthPageInner() {
               letterSpacing: "-0.02em",
             }}
           >
-            Agent <span style={{ color: "#ff8a00" }}>B</span>ora
+            Agent{" "}
+            <span
+              style={{
+                background: "var(--brand-grad)",
+                WebkitBackgroundClip: "text",
+                backgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              Bora
+            </span>
           </span>
         </Link>
 
