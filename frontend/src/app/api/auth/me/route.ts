@@ -2,16 +2,15 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getFirebaseAdmin, verifySessionCookie } from "@/lib/firebase-admin";
-import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { serverApiPost } from "@/lib/server-api";
 
 export const runtime = "nodejs";
 
 const SESSION_COOKIE_NAME = "__session";
 
-// /api/auth/me upserts the user row keyed on the Firebase UID. The row
-// doesn't exist yet for new sign-ups, so the user-scoped RLS policies would
-// reject the insert. We use the service-role admin client here on purpose —
-// this endpoint is the trusted "user-provisioning" step.
+// /api/auth/me provisions the user row keyed on the Firebase UID by calling the
+// backend's /api/users/provision (which upserts into Cloud SQL). The row may not
+// exist yet for new sign-ups, so this is the trusted "user-provisioning" step.
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -38,31 +37,18 @@ export async function GET() {
     console.error("Failed to fetch Firebase user record:", e);
   }
 
-  // Provision the users row. If something goes wrong (RLS, FK, unique-email
-  // collision from a legacy account) we surface it instead of silently
-  // returning a half-authenticated session — that was the bug behind a
-  // notorious "agents_user_id_fkey violation" report.
+  // Provision the users row via the backend (Cloud SQL upsert). Surface
+  // failures instead of returning a half-authenticated session.
   try {
-    const supabase = getSupabaseAdminClient();
-    const { error } = await supabase.from("users").upsert(
-      {
-        id: decoded.uid,
-        email,
-        full_name: fullName,
-        avatar_url: avatarUrl,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-    if (error) {
-      console.error("[/api/auth/me] users.upsert failed:", error);
+    const res = await serverApiPost("/api/users/provision", {
+      email,
+      full_name: fullName,
+      avatar_url: avatarUrl,
+    });
+    if (!res.ok) {
+      console.error("[/api/auth/me] provision failed:", res.error);
       return NextResponse.json(
-        {
-          authenticated: false,
-          user: null,
-          error: `User provisioning failed: ${error.message}`,
-          code: error.code,
-        },
+        { authenticated: false, user: null, error: `User provisioning failed: ${res.error}` },
         { status: 500 },
       );
     }

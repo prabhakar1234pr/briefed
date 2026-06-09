@@ -7,44 +7,27 @@ from typing import Any
 
 import httpx
 
+from app import repo
 from app.config import get_settings
 from app.logger import get_logger
 
 log = get_logger(__name__)
 
 
-def _get_user_email(db: Any, user_id: str) -> str | None:
-    """
-    Fetch user email. Tries two approaches:
-    1. Supabase Auth Admin API (auth.users — where Supabase stores emails)
-    2. Fallback: public.users table (if synced via DB trigger)
-    """
-    # Approach 1: Supabase Auth Admin API
+def _get_user_email(user_id: str) -> str | None:
+    """Fetch user email from the Cloud SQL users table."""
     try:
-        user = db.auth.admin.get_user_by_id(user_id)
-        if user and hasattr(user, "user") and user.user:
-            email = getattr(user.user, "email", None)
-            if email:
-                log.debug("user_email_from_auth", user_id=user_id, email=email)
-                return email
-    except Exception as e:
-        log.debug("auth_admin_lookup_failed", user_id=user_id, error=str(e))
-
-    # Approach 2: public.users table fallback
-    try:
-        u_res = db.table("users").select("email").eq("id", user_id).limit(1).execute()
-        email = (u_res.data or [{}])[0].get("email")
+        u = repo.get_user(user_id)
+        email = u.get("email") if u else None
         if email:
             log.debug("user_email_from_table", user_id=user_id, email=email)
             return email
     except Exception as e:
         log.debug("users_table_lookup_failed", user_id=user_id, error=str(e))
-
     return None
 
 
 async def try_send_post_meeting_brief(
-    db: Any,
     *,
     meeting_id: str,
     user_id: str,
@@ -59,31 +42,23 @@ async def try_send_post_meeting_brief(
         log.info("email_skip_no_agent", meeting_id=meeting_id)
         return
 
-    ag_res = (
-        db.table("agents")
-        .select("send_post_meeting_email, name")
-        .eq("id", agent_id)
-        .limit(1)
-        .execute()
-    )
-    if not ag_res.data:
+    agent = repo.get_agent(agent_id)
+    if not agent:
         log.warning("email_skip_agent_not_found", meeting_id=meeting_id, agent_id=agent_id)
         return
 
-    email_enabled = ag_res.data[0].get("send_post_meeting_email")
+    email_enabled = agent.get("send_post_meeting_email")
     if not email_enabled:
         log.info("email_skip_disabled_on_agent",
                  meeting_id=meeting_id, agent_id=agent_id,
                  field_value=email_enabled)
         return
 
-    to_email = _get_user_email(db, user_id)
+    to_email = _get_user_email(user_id)
     if not to_email:
         log.warning("email_skip_no_user_email",
                      meeting_id=meeting_id, user_id=user_id,
-                     hint="User email not found. Supabase Auth emails live in auth.users — "
-                          "ensure the service role key has auth admin access, or sync emails "
-                          "to a public.users table via a DB trigger.")
+                     hint="User email not found in the users table.")
         return
 
     s = get_settings()
@@ -95,7 +70,7 @@ async def try_send_post_meeting_brief(
         return
 
     from_addr = s.get("resend_from") or "Briefed <onboarding@resend.dev>"
-    agent_name = ag_res.data[0].get("name") or "Briefed"
+    agent_name = agent.get("name") or "Briefed"
 
     summary = str(intel.get("summary") or "")
     items = intel.get("action_items") or []

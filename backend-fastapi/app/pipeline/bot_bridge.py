@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from app.db import get_supabase_service
+from app import repo
 from app.logger import get_logger
 from app.pipeline.runner import MeetingPipeline
 
@@ -39,29 +39,20 @@ async def bot_bridge(
     load the agent config, and spawn the Pipecat pipeline against this WS.
     """
     # ── Verify token & load meeting/agent ────────────────────────────────
-    db = get_supabase_service()
     try:
-        meeting_res = (
-            db.table("meetings")
-            .select("id, agent_id, bridge_token")
-            .eq("id", meeting_id)
-            .single()
-            .execute()
-        )
+        meeting = repo.get_meeting(meeting_id)
     except Exception as e:
         log.warning("bot_bridge_meeting_lookup_failed", meeting_id=meeting_id, error=str(e)[:160])
         await websocket.close(code=1008)
         return
 
-    meeting = meeting_res.data
     if not meeting or meeting.get("bridge_token") != token:
         log.warning("bot_bridge_token_mismatch", meeting_id=meeting_id)
         await websocket.close(code=1008)
         return
 
     agent_id = meeting["agent_id"]
-    agent_res = db.table("agents").select("*").eq("id", agent_id).single().execute()
-    agent = agent_res.data
+    agent = repo.get_agent(agent_id)
     if not agent:
         log.warning("bot_bridge_agent_missing", meeting_id=meeting_id)
         await websocket.close(code=1008)

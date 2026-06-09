@@ -1,14 +1,35 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
-import { getSupabaseAdminClient } from "@/lib/supabase-admin";
+import { publicApiGet } from "@/lib/server-api";
 import type { MeetingStatus } from "@/types/agents";
 
-// Public share page — accessed by URL with the meeting UUID. After v2 RLS
-// lockdown, ordinary clients can only see their own meetings, so the public
-// share has to come from the service-role client. The meeting UUID itself is
-// the unguessable share token. If you need finer control (e.g. revocable
-// shares), add a `share_token` column to meetings and check it here.
+// Public share page — accessed by URL with the meeting UUID. The backend
+// exposes a no-auth /api/share/{id} endpoint; the meeting UUID itself is the
+// unguessable share token. If you need finer control (e.g. revocable shares),
+// add a `share_token` column and check it in the backend.
+
+type ShareResponse = {
+  meeting: {
+    id: string;
+    meeting_link: string;
+    status: string;
+    transcript_text: string | null;
+    audio_url: string | null;
+    video_url: string | null;
+    created_at: string;
+    agent_id: string | null;
+    summary: string | null;
+    action_items: string | null;
+    key_decisions: string | null;
+  };
+  agent_name: string | null;
+  transcript_lines: { id: string; speaker_name: string | null; content: string; spoken_at: string }[];
+  interactions: {
+    id: string; interaction_type: string; trigger_text: string;
+    response_text: string; spoken_at: string;
+  }[];
+};
 
 type Props = { params: Promise<{ id: string }> };
 export const dynamic = "force-dynamic";
@@ -39,31 +60,19 @@ function SL({ children }: { children: React.ReactNode }) {
 
 export default async function SharedMeetingPage({ params }: Props) {
   const { id } = await params;
-  const supabase = getSupabaseAdminClient();
 
-  const { data: meeting, error } = await supabase
-    .from("meetings")
-    .select("id, meeting_link, status, transcript_text, audio_url, video_url, created_at, agent_id, summary, action_items, key_decisions")
-    .eq("id", id)
-    .maybeSingle();
+  let data: ShareResponse | null = null;
+  try {
+    data = await publicApiGet<ShareResponse>(`/api/share/${encodeURIComponent(id)}`);
+  } catch {
+    notFound();
+  }
+  if (!data) notFound();
 
-  if (error || !meeting) notFound();
-
-  const { data: transcriptLines } = await supabase
-    .from("transcript_lines")
-    .select("id, speaker_name, content, spoken_at")
-    .eq("meeting_id", id)
-    .order("spoken_at");
-
-  const { data: interactions } = await supabase
-    .from("meeting_interactions")
-    .select("id, interaction_type, trigger_text, response_text, spoken_at")
-    .eq("meeting_id", id)
-    .order("spoken_at");
-
-  const { data: agent } = meeting.agent_id
-    ? await supabase.from("agents").select("name").eq("id", meeting.agent_id).maybeSingle()
-    : { data: null };
+  const meeting = data.meeting;
+  const transcriptLines = data.transcript_lines;
+  const interactions = data.interactions;
+  const agent = data.agent_name ? { name: data.agent_name } : null;
 
   const s = statusConfig[meeting.status as MeetingStatus] ?? statusConfig.completed;
 

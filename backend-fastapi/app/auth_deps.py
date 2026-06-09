@@ -1,18 +1,14 @@
-"""Firebase + Supabase JWT validation.
+"""Firebase ID-token validation.
 
-Validates Firebase ID tokens issued to the frontend.
-Falls back to Supabase JWKS for the WS bot-bridge path (signed by Supabase JWT secret).
+Validates Firebase ID tokens issued to the frontend. (The legacy Supabase JWT
+fallback was removed with the Cloud SQL migration — Firebase is the only issuer.)
 """
 
-from functools import lru_cache
 from typing import Annotated, Any
 
-import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt import PyJWKClient
 
-from app.config import get_settings
 from app.logger import get_logger
 
 log = get_logger(__name__)
@@ -71,25 +67,6 @@ def _verify_firebase_id_token(token: str) -> dict[str, Any]:
     return decoded
 
 
-# ─── Supabase JWT fallback (for bot-bridge WebSocket) ─────────────────────────
-@lru_cache(maxsize=8)
-def _supabase_jwks_client(supabase_url: str) -> PyJWKClient:
-    base = supabase_url.rstrip("/")
-    return PyJWKClient(f"{base}/auth/v1/.well-known/jwks.json")
-
-
-def _decode_supabase_fallback(token: str, supabase_url: str) -> dict:
-    client = _supabase_jwks_client(supabase_url)
-    signing_key = client.get_signing_key_from_jwt(token)
-    return jwt.decode(
-        token,
-        signing_key.key,
-        algorithms=["ES256", "RS256"],
-        audience="authenticated",
-        options={"verify_aud": True},
-    )
-
-
 # ─── FastAPI dependency ───────────────────────────────────────────────────────
 def get_user_id(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
@@ -97,41 +74,18 @@ def get_user_id(
     """
     Resolve the requesting user's ID from the Authorization: Bearer <token> header.
 
-    Tries Firebase ID token first (the frontend's default), falls back to Supabase
-    JWT (used by some legacy / WS paths). Returns the user's `sub` (Firebase UID
-    or Supabase auth user UUID).
+    Validates the Firebase ID token and returns the user's `sub` (Firebase UID).
     """
     if creds is None or creds.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
-    settings = get_settings()
-    supabase_url = settings.get("supabase_url")
-    token = creds.credentials
-    payload: dict | None = None
-
-    # Try Firebase first
     try:
-        payload = _verify_firebase_id_token(token)
+        payload = _verify_firebase_id_token(creds.credentials)
     except Exception as e:
         log.debug("firebase_verify_failed", error=str(e)[:160])
-        payload = None
-
-    # Fallback to Supabase-signed JWT
-    if payload is None and supabase_url:
-        try:
-            payload = _decode_supabase_fallback(token, supabase_url)
-        except jwt.PyJWTError as e:
-            log.debug("supabase_verify_failed", error=str(e)[:160])
-            payload = None
-
-    if payload is None:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid token") from e
 
     sub = payload.get("sub")
     if not sub or not isinstance(sub, str):
         raise HTTPException(status_code=401, detail="Invalid token subject")
     return sub
-
-
-# Backwards-compatible alias
-get_supabase_user_id = get_user_id

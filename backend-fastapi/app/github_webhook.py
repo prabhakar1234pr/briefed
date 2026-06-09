@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from app.auth_deps import get_user_id
 from app.config import get_settings
-from app.db import get_supabase_service
+from app import repo as data_repo
 from app.logger import get_logger
 from app.pipeline import memory as mem
 from app import github_app as gh_app
@@ -63,10 +63,8 @@ async def connect_github_repo(
     for the user to register on GitHub. Does NOT do the initial repo walk —
     that's a separate POST /api/agents/{id}/context with the repo URL.
     """
-    db = get_supabase_service()
     # Ownership check
-    ag = db.table("agents").select("id, user_id").eq("id", agent_id).limit(1).execute()
-    if not ag.data or ag.data[0]["user_id"] != user_id:
+    if not data_repo.get_agent(agent_id, user_id):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     # In App mode the webhook secret is the app-wide one (env). In PAT mode
@@ -76,19 +74,16 @@ async def connect_github_repo(
     else:
         webhook_secret = _secrets.token_urlsafe(32)
 
-    row = {
-        "agent_id": agent_id,
-        "repo_full_name": body.repo_full_name.strip(),
-        "branch": body.branch.strip() or "main",
-        "installation_id": body.installation_id,
-        "webhook_secret": webhook_secret,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
+    branch = body.branch.strip() or "main"
     try:
-        db.table("agent_github_sources").upsert(
-            row,
-            on_conflict="agent_id,repo_full_name,branch",
-        ).execute()
+        data_repo.upsert_github_source(
+            agent_id=agent_id,
+            repo_full_name=body.repo_full_name.strip(),
+            branch=branch,
+            installation_id=body.installation_id,
+            webhook_secret=webhook_secret,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}") from e
 
@@ -100,7 +95,7 @@ async def connect_github_repo(
         "webhook_secret": webhook_secret,
         "events": ["push"],
         "content_type": "application/json",
-        "branch": row["branch"],
+        "branch": branch,
         "mode": "app" if body.installation_id and gh_app.app_mode_enabled() else "pat",
         "installation_id": body.installation_id,
     }
@@ -123,9 +118,7 @@ async def github_install_url(
         raise HTTPException(status_code=400, detail="GitHub App not configured on this server")
 
     # Verify the user owns the agent before issuing an install URL
-    db = get_supabase_service()
-    ag = db.table("agents").select("id, user_id").eq("id", agent_id).limit(1).execute()
-    if not ag.data or ag.data[0]["user_id"] != user_id:
+    if not data_repo.get_agent(agent_id, user_id):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     settings = get_settings()
@@ -223,15 +216,7 @@ async def github_webhook(
     if not repo or not branch:
         raise HTTPException(status_code=400, detail="Missing repo or branch")
 
-    db = get_supabase_service()
-    src_res = (
-        db.table("agent_github_sources")
-        .select("*")
-        .eq("repo_full_name", repo)
-        .eq("branch", branch)
-        .execute()
-    )
-    sources = src_res.data or []
+    sources = data_repo.list_github_sources(repo_full_name=repo, branch=branch)
     if not sources:
         # Nobody subscribed — return 200 so GitHub doesn't retry forever.
         return {"status": "no_subscribers", "repo": repo, "branch": branch}
@@ -341,11 +326,11 @@ async def _sync_changed_files(
 
     # Bookkeeping
     try:
-        db = get_supabase_service()
-        db.table("agent_github_sources").update({
-            "last_synced_sha": after_sha,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", src["id"]).execute()
+        data_repo.update_github_source_sha(
+            src["id"],
+            last_synced_sha=after_sha,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
     except Exception as e:
         log.warning("github_bookkeeping_failed", error=str(e)[:160])
 
@@ -449,11 +434,10 @@ async def _handle_installation_event(event_name: str, payload: dict[str, Any]) -
         return
 
     if event_name == "installation" and action in ("deleted", "suspend"):
-        db = get_supabase_service()
         try:
-            res = db.table("agent_github_sources").delete().eq("installation_id", installation_id).execute()
+            deleted = data_repo.delete_github_sources_by_installation(installation_id)
             log.info("github_install_removed", installation_id=installation_id,
-                     rows_deleted=len(res.data or []))
+                     rows_deleted=deleted)
         except Exception as e:
             log.error("github_install_delete_failed", error=str(e)[:200])
         return

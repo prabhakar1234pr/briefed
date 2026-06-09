@@ -1,12 +1,9 @@
-from supabase import Client, create_client
+"""Database access entrypoint.
 
-from app.config import get_settings
+Supabase has been replaced by Cloud SQL (PostgreSQL). The connection pool lives
+in app.sql and the typed data-access functions live in app.repo. This module is
+kept as a thin convenience re-export so `from app.db import get_engine` works.
+"""
+from app.sql import get_engine
 
-
-def get_supabase_service() -> Client:
-    s = get_settings()
-    url = s["supabase_url"]
-    key = s["supabase_service_role_key"]
-    if not url or not key:
-        raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
-    return create_client(url, key)
+__all__ = ["get_engine"]

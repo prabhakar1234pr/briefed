@@ -1,15 +1,17 @@
 import Link from "next/link";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiGet } from "@/lib/server-api";
 import { requireServerUser } from "@/lib/auth";
 import { MeetingSession } from "@/components/MeetingSession";
 
 export default async function MeetingPage() {
   await requireServerUser("/meeting");
-  const supabase = await getSupabaseDbClient();
-  const { data: agents } = await supabase
-    .from("agents")
-    .select("id, name")
-    .order("name");
+  let agents: { id: string; name: string }[] = [];
+  try {
+    const data = await serverApiGet<{ agents: { id: string; name: string }[] }>("/api/agents");
+    agents = (data.agents ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    agents = [];
+  }
 
   return (
     <div style={{ maxWidth: 780, margin: "0 auto", padding: "48px 24px" }}>

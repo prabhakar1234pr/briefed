@@ -11,7 +11,8 @@ on:
 env:
   SERVICE_NAME: backend-fastapi
   REGION: us-central1
-  PROJECT_ID: briefed-app-prod
+  PROJECT_ID: briefed-42540
+  CLOUD_SQL_INSTANCE: briefed-42540:us-central1:briefed-db
 
 jobs:
   deploy:
@@ -63,6 +64,7 @@ jobs:
             --region=${{ env.REGION }} \
             --project=${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
-            --service-account=briefed-backend@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --update-env-vars=GCP_PROJECT=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }} \
+            --add-cloudsql-instances=${{ env.CLOUD_SQL_INSTANCE }} \
+            --update-env-vars=GCP_PROJECT=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }},CLOUD_SQL_CONNECTION_NAME=${{ env.CLOUD_SQL_INSTANCE }},DB_NAME=briefed,DB_USER=postgres,SCREENSHOTS_BUCKET=briefed-42540-screenshots \
+            --update-secrets=DB_PASS=briefed-db-password:latest \
             --quiet

@@ -2,9 +2,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireServerUser } from "@/lib/auth";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiGet } from "@/lib/server-api";
 import type { MeetingStatus } from "@/types/agents";
 import { MeetingChat } from "@/components/MeetingChat";
+
+type MeetingDetail = {
+  id: string; meeting_link: string; status: string; bot_id: string | null;
+  transcript_text: string | null; audio_url: string | null; video_url: string | null;
+  created_at: string; agent_id: string | null;
+  summary: string | null; action_items: string | null; key_decisions: string | null;
+  transcript_lines: { id: string; speaker_name: string | null; content: string; spoken_at: string }[];
+};
+type InteractionRow = {
+  id: string; interaction_type: string; trigger_text: string;
+  response_text: string; spoken_at: string; screenshot_url?: string | null;
+};
 
 type Props = { params: Promise<{ id: string }> };
 export const dynamic = "force-dynamic";
@@ -36,32 +48,26 @@ function SL({ children }: { children: React.ReactNode }) {
 export default async function MeetingDetailPage({ params }: Props) {
   const { id } = await params;
   await requireServerUser(`/meetings/${id}`);
-  const supabase = await getSupabaseDbClient();
 
-  const { data: meeting, error } = await supabase
-    .from("meetings")
-    .select("id, meeting_link, status, bot_id, transcript_text, audio_url, video_url, created_at, agent_id, summary, action_items, key_decisions")
-    .eq("id", id)
-    .maybeSingle();
+  let meeting: MeetingDetail;
+  try {
+    meeting = await serverApiGet<MeetingDetail>(`/api/meetings/${id}`);
+  } catch {
+    notFound();
+  }
 
-  if (error || !meeting) notFound();
+  const transcriptLines = meeting.transcript_lines ?? [];
 
-  const { data: transcriptLines } = await supabase
-    .from("transcript_lines")
-    .select("id, speaker_name, content, spoken_at")
-    .eq("meeting_id", id)
-    .order("spoken_at");
-
-  const { data: interactions } = await supabase
-    .from("meeting_interactions")
-    .select("id, interaction_type, trigger_text, response_text, spoken_at, screenshot_url")
-    .eq("meeting_id", id)
-    .order("spoken_at");
+  const interactions = await serverApiGet<{ interactions: InteractionRow[] }>(
+    `/api/meetings/${id}/interactions`,
+  )
+    .then((d) => d.interactions ?? [])
+    .catch(() => [] as InteractionRow[]);
 
   // Get agent info for ask
-  const { data: agent } = meeting.agent_id
-    ? await supabase.from("agents").select("id, name").eq("id", meeting.agent_id).maybeSingle()
-    : { data: null };
+  const agent = meeting.agent_id
+    ? await serverApiGet<{ id: string; name: string }>(`/api/agents/${meeting.agent_id}`).catch(() => null)
+    : null;
 
   const s = statusConfig[meeting.status as MeetingStatus] ?? statusConfig.completed;
 
