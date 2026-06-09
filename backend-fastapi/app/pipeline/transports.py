@@ -106,6 +106,26 @@ class RecallAudioInputTransport(BaseInputTransport):
                     self._prestart_overflowed = True
                     log.warning("recall_input_prestart_overflow", cap=self._PRESTART_MAX)
             return
+        # BACKPRESSURE — the real cause of the 30s+ lag. Recall streams audio
+        # continuously (even during silence). If downstream (VAD/STT) can't drain
+        # the queue as fast as it fills, it grows unbounded and every utterance
+        # waits behind tens of seconds of stale audio. Cap the queue: if it's
+        # backed up, drop the OLDEST frames so we stay near real time. A few
+        # dropped silence frames cost nothing; a 30s backlog is fatal.
+        q = getattr(self, "_audio_in_queue", None)
+        if q is not None:
+            # ~50 frames of 200ms audio = ~10s hard ceiling; trim toward ~2s.
+            if q.qsize() > 50:
+                dropped = 0
+                while q.qsize() > 10:
+                    try:
+                        q.get_nowait()
+                        q.task_done()
+                        dropped += 1
+                    except Exception:
+                        break
+                if dropped:
+                    log.warning("recall_input_backpressure_drop", dropped=dropped, qsize=q.qsize())
         await self.push_audio_frame(frame)
 
     @property
@@ -135,7 +155,12 @@ class BotPageOutputTransport(BaseOutputTransport):
         # halve it so we stay a little ahead of real time (same heuristic as the
         # stock FastAPI output transport).
         if self.sample_rate:
-            self._send_interval = (self.audio_chunk_size / self.sample_rate) / 2
+            # Pace at (just under) real-time. The stock FastAPI transport uses
+            # /2, which is fine for tiny 40ms chunks but at larger chunk sizes
+            # blasts audio at ~2x real-time → the bot-page scheduler overruns
+            # then starves → choppy. Pace at the full chunk duration (×0.9 to
+            # stay slightly ahead so we never underrun).
+            self._send_interval = (self.audio_chunk_size / self.sample_rate) * 0.9
         # CRITICAL: BaseOutputTransport.start() does NOT register the default
         # media sender — set_transport_ready() does. The stock FastAPI transport
         # calls it from start(); we must too, or every TTSAudioRawFrame is

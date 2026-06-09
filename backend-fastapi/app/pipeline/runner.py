@@ -159,14 +159,26 @@ class MeetingPipeline:
                 audio_out_enabled=True,
                 audio_out_sample_rate=24000,
                 audio_out_channels=1,
-                # Bigger, steadier chunks (200ms vs the 40ms default) = fewer WS
-                # messages and less jitter for the bot-page's playback scheduler,
-                # which reduces the choppy/breaking audio.
-                audio_out_10ms_chunks=20,
+                # 60ms chunks: small enough that the first audio goes out quickly
+                # (low onset latency) and delivery is smooth, but bigger than the
+                # 40ms default to cut WS message count. Pairs with the corrected
+                # real-time pacing in BotPageOutputTransport.
+                audio_out_10ms_chunks=6,
             ),
             websocket=self.session.bot_ws,
         )
-        vad = VADProcessor(vad_analyzer=SileroVADAnalyzer())
+        # Explicit VAD params. On Recall's MIXED meeting audio (multiple people,
+        # room noise, the bot's own voice bleeding in) the default Silero
+        # thresholds keep the analyzer in SPEAKING too long, which defers the
+        # VADUserStoppedSpeaking event → defers Deepgram's Finalize → multi-second
+        # (felt: tens of seconds, compounded by input backlog) STT latency.
+        # stop_secs=0.6 finalizes promptly after a real pause.
+        from pipecat.audio.vad.vad_analyzer import VADParams
+        vad = VADProcessor(
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(stop_secs=0.6, start_secs=0.2, confidence=0.6, min_volume=0.4)
+            )
+        )
 
         # ── STT: Deepgram streaming (nova-3) ───────────────────────────────
         # Pipecat 1.2 DeepgramSTTService takes connection params as direct
