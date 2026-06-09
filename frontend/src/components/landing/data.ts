@@ -1,3 +1,8 @@
+// Shared cubic-bezier easing for landing animations.
+// Typed as a 4-tuple so Framer Motion's `Easing` type accepts it
+// (a plain array literal widens to number[], which is rejected).
+export const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+
 export const upcomingMeetings = [
   {
     title: "Product Strategy Call",

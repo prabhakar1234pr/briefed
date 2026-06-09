@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import styles from "@/app/page.module.css";
+import { EASE } from "./data";
 
 type Tier = {
   name: string;
@@ -72,7 +73,7 @@ export default function Pricing() {
         initial={{ opacity: 0, y: 24 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, amount: 0.3 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.6, ease: EASE }}
       >
         <span className={styles.sectionEyebrow}>Pricing</span>
         <h2 className={styles.sectionHeading}>
@@ -114,7 +115,7 @@ export default function Pricing() {
               initial={{ opacity: 0, y: 40 }}
               whileInView={{ opacity: 1, y: tier.featured ? -8 : 0 }}
               viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.55, delay: idx * 0.1, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.55, delay: idx * 0.1, ease: EASE }}
             >
               {tier.featured && <span className={styles.priceTag}>Most popular</span>}
               <p className={styles.priceName}>{tier.name}</p>

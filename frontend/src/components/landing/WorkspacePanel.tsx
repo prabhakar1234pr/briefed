@@ -9,13 +9,14 @@ import {
   actionItems,
   docLogos,
   platformLogos,
+  EASE,
 } from "./data";
 
 const waveHeights = [10, 14, 22, 16, 11, 18, 26, 19, 13, 10, 15];
 
 const reveal = {
   hidden: { opacity: 0, y: 40 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } },
 };
 
 const stagger = {
@@ -25,7 +26,7 @@ const stagger = {
 
 const card = {
   hidden: { opacity: 0, y: 24, scale: 0.98 },
-  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } },
+  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: EASE } },
 };
 
 export default function WorkspacePanel() {

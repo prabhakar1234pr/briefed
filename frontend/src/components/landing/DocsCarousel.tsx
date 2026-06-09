@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import styles from "@/app/page.module.css";
 import { articles } from "@/app/docs/articles";
+import { EASE } from "./data";
 
 export default function DocsCarousel() {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -19,7 +20,7 @@ export default function DocsCarousel() {
         initial={{ opacity: 0, y: 24 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, amount: 0.3 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.6, ease: EASE }}
       >
         <span className={styles.sectionEyebrow}>Docs &amp; guides</span>
         <h2 className={styles.sectionHeading}>
@@ -43,7 +44,7 @@ export default function DocsCarousel() {
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.5, delay: (idx % 3) * 0.08, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.5, delay: (idx % 3) * 0.08, ease: EASE }}
             >
               <Link href={`/docs/${article.slug}`} className={styles.docCard}>
                 <div

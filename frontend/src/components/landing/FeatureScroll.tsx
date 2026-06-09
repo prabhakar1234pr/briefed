@@ -3,11 +3,11 @@
 import Image from "next/image";
 import { motion } from "motion/react";
 import styles from "@/app/page.module.css";
-import { upcomingMeetings, platformLogos, flowActionList } from "./data";
+import { upcomingMeetings, platformLogos, flowActionList, EASE } from "./data";
 
 const panelHeader = {
   hidden: { opacity: 0, y: 30 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } },
 };
 
 const panelCard = {
@@ -16,7 +16,7 @@ const panelCard = {
     opacity: 1,
     y: 0,
     scale: 1,
-    transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: 0.1 },
+    transition: { duration: 0.7, ease: EASE, delay: 0.1 },
   },
 };
 
