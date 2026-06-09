@@ -54,7 +54,7 @@ def get_settings() -> dict[str, str | None]:
 
         # Output Media bot page URL (GCS-hosted)
         "bot_page_url": (
-            os.getenv("BOT_PAGE_URL", "https://storage.googleapis.com/briefed-bot-page/index.html").strip()
+            os.getenv("BOT_PAGE_URL", "https://storage.googleapis.com/briefed-42540-bot-page/index.html").strip()
         ),
 
         # Unkey (rate limiting + API key management)
