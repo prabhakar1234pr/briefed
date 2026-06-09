@@ -35,13 +35,16 @@ and the output buffer is flushed.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket
 
 from app.config import get_settings
 from app.logger import get_logger
-from app.pipeline.context import MeetingContext
+
+if TYPE_CHECKING:
+    from app.pipeline.session import MeetingSession
+    from app.pipeline.transports import BotPageOutputTransport
 
 log = get_logger(__name__)
 
@@ -58,27 +61,24 @@ class MeetingPipeline:
     """
     Wraps a Pipecat PipelineTask + PipelineRunner for one meeting.
 
-    Held alive by the FastAPI WebSocket handler. When the WebSocket closes,
-    .cancel() tears down the pipeline and removes it from the registry.
+    Owned by a MeetingSession. Input audio comes from the Recall audio websocket
+    (session.recall_input); output (TTS) goes to the bot-page websocket
+    (session.bot_ws). .cancel() tears down the pipeline.
     """
 
-    def __init__(
-        self,
-        *,
-        meeting_id: str,
-        agent: dict[str, Any],
-        websocket: WebSocket,
-    ):
-        self.meeting_id = meeting_id
-        self.agent = agent
-        self.websocket = websocket
-        self.context = MeetingContext(
-            meeting_id=meeting_id,
-            agent_id=agent["id"],
-            agent_name=agent.get("name") or "Assistant",
-        )
+    def __init__(self, *, session: "MeetingSession"):
+        self.session = session
+        self.meeting_id = session.meeting_id
+        self.agent = session.agent
+        self.context = session.context
+        self._output: "BotPageOutputTransport | None" = None
         self._task: asyncio.Task[None] | None = None
         self._pipeline_task: Any = None  # pipecat PipelineTask
+
+    def swap_output_websocket(self, websocket: WebSocket) -> None:
+        """Point the output transport at a reconnected bot-page socket."""
+        if self._output is not None:
+            self._output.set_websocket(websocket)
 
     async def start(self) -> None:
         """Launch the pipeline as a background task. Returns immediately."""
@@ -124,14 +124,11 @@ class MeetingPipeline:
             from pipecat.processors.aggregators.llm_response_universal import (
                 LLMContextAggregatorPair,
             )
+            from pipecat.processors.audio.vad_processor import VADProcessor
             from pipecat.services.deepgram.stt import DeepgramSTTService
             from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
             from pipecat.services.google.vertex.llm import GoogleVertexLLMService
             from pipecat.services.google.llm import GoogleLLMService, GoogleThinkingConfig
-            from pipecat.transports.websocket.fastapi import (
-                FastAPIWebsocketTransport,
-                FastAPIWebsocketParams,
-            )
         except ImportError as e:
             log.error(
                 "pipecat_import_failed",
@@ -140,21 +137,32 @@ class MeetingPipeline:
             )
             return
 
+        from app.pipeline.transports import BotPageOutputTransport
+        from app.pipeline.turn_gate import TurnGate
+        from pipecat.transports.base_transport import TransportParams
+
         settings = get_settings()
         agent_name = self.agent.get("name") or "Assistant"
         agent_persona = self.agent.get("persona") or ""
         voice_id = self.agent.get("voice_id") or settings["elevenlabs_default_voice"]
 
-        # ── Transport: FastAPI WebSocket bridge to bot-page ────────────────
-        transport = FastAPIWebsocketTransport(
-            websocket=self.websocket,
-            params=FastAPIWebsocketParams(
-                audio_in_enabled=True,
+        # ── Transports: Recall audio in (session) + bot-page out ───────────
+        # INPUT comes from the Recall audio websocket (already attached to the
+        # session). OUTPUT (TTS) goes to the bot-page websocket. VAD must be an
+        # explicit processor in 1.2.x — params.vad_analyzer is ignored.
+        input_transport = self.session.recall_input
+        if input_transport is None:
+            log.error("pipeline_no_input_transport", meeting_id=self.meeting_id)
+            return
+        self._output = BotPageOutputTransport(
+            TransportParams(
                 audio_out_enabled=True,
-                add_wav_header=False,
-                vad_analyzer=SileroVADAnalyzer(),
+                audio_out_sample_rate=24000,
+                audio_out_channels=1,
             ),
+            websocket=self.session.bot_ws,
         )
+        vad = VADProcessor(vad_analyzer=SileroVADAnalyzer())
 
         # ── STT: Deepgram streaming (nova-3) ───────────────────────────────
         # Pipecat 1.2 DeepgramSTTService takes connection params as direct
@@ -202,14 +210,26 @@ class MeetingPipeline:
         )
         context_aggregator_pair = LLMContextAggregatorPair(llm_context)
 
+        # ── Turn gate: Nebius/Qwen decides worth-speaking; raises hand;
+        #    only releases the turn to the LLM after a human grants permission.
+        #    Sits BEFORE the user aggregator so suppressed turns never reach the
+        #    LLM context. Degrades to pass-through when Nebius isn't configured.
+        turn_gate = TurnGate(
+            session=self.session,
+            context=self.context,
+            agent_name=agent_name,
+        )
+
         # ── Wire pipeline ──────────────────────────────────────────────────
         pipeline = Pipeline([
-            transport.input(),
+            input_transport,
+            vad,
             stt,
+            turn_gate,
             context_aggregator_pair.user(),
             llm,
             tts,
-            transport.output(),
+            self._output,
             context_aggregator_pair.assistant(),
         ])
 
@@ -229,6 +249,7 @@ class MeetingPipeline:
         async def _on_speech_started(_service):
             log.info("user_speech_started", meeting_id=self.meeting_id)
 
+        log.info("pipeline_wired", meeting_id=self.meeting_id, model=settings.get("live_qa_model"))
         runner = PipelineRunner(handle_sigint=False)
         try:
             await runner.run(self._pipeline_task)

@@ -35,10 +35,20 @@
     0%, 100% { box-shadow: 0 0 20px rgba(96,165,250,0.3); }
     50%      { box-shadow: 0 0 40px rgba(96,165,250,0.6); }
   }
+  .hand {
+    font-size: 64px; line-height: 1; margin-bottom: 16px;
+    display: none; transform-origin: 70% 100%;
+  }
+  .hand.raised { display: block; animation: wave 1.1s ease-in-out infinite; }
+  @keyframes wave {
+    0%, 100% { transform: rotate(-8deg); }
+    50%      { transform: rotate(12deg); }
+  }
   .debug { font-size: 11px; color: #555; margin-top: 8px; max-width: 1000px; text-align: center; }
 </style>
 </head>
 <body>
+<div class="hand" id="hand">✋</div>
 <div class="indicator" id="indicator"></div>
 <div class="agent-name" id="agentName">Briefed</div>
 <div class="status listening" id="status">Connecting...</div>
@@ -52,12 +62,18 @@ const MEETING_ID = P.get('meeting_id') || '';
 const AGENT_NAME = P.get('agent_name') || 'Briefed';
 const BACKEND_WS = P.get('backend_ws') || '';   // e.g. wss://api.briefed.com
 const TOKEN      = P.get('token')      || '';
+// Meeting audio now arrives at the backend via a server-side Recall websocket
+// (audio_mixed_raw.data), NOT via this page's mic — Recall doesn't feed meeting
+// audio into the output-media webpage's getUserMedia. So capture is OFF by
+// default; pass ?capture=1 only for legacy experiments.
+const CAPTURE    = P.get('capture') === '1';
 
 document.getElementById('agentName').textContent = AGENT_NAME;
 
 const statusEl = document.getElementById('status');
 const indEl    = document.getElementById('indicator');
 const dbgEl    = document.getElementById('debug');
+const handEl   = document.getElementById('hand');
 
 function dbg(msg) { dbgEl.textContent = msg; console.log('[v2]', msg); }
 function setStatus(text, cls) {
@@ -95,7 +111,7 @@ function connectBridge() {
   ws.onopen = () => {
     dbg('bridge open');
     setStatus('Listening...', 'listening');
-    startCapture();
+    if (CAPTURE) startCapture();  // legacy only; meeting audio comes server-side now
   };
 
   ws.onmessage = (e) => {
@@ -121,6 +137,10 @@ function connectBridge() {
 function handleControlMessage(msg) {
   if (msg.type === 'bot_state') {
     setStatus(msg.speaking ? 'Speaking...' : 'Listening...', msg.speaking ? 'speaking' : 'listening');
+  } else if (msg.type === 'hand') {
+    // Bora is politely requesting permission to speak (visible in the meeting).
+    handEl.classList.toggle('raised', !!msg.raised);
+    if (msg.raised) setStatus('Raising hand…', 'thinking');
   }
 }
 
@@ -191,15 +211,32 @@ async function startCapture() {
 }
 
 // ─── Playback: backend → meeting ────────────────────────────────────────────
+//
+// IMPORTANT: Recall's output-media captures the bot-page's audio from a MEDIA
+// ELEMENT's output (the <audio> tag), NOT from the Web Audio default
+// destination (ctx.destination / "speakers"). In Recall's headless Chrome there
+// is no real speaker, so audio sent only to ctx.destination is never heard in
+// the meeting. We therefore route Web Audio through a MediaStreamDestination and
+// attach that stream to <audio id="output" autoplay>, which Recall does capture.
+// We also resume() the context (it can start 'suspended').
+let mediaDest = null;       // MediaStreamAudioDestinationNode
+const outputEl = document.getElementById('output');
+
 function ensureAudioCtx() {
   if (audioCtx) return audioCtx;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
+  // Route to a captured MediaStream (Recall records the <audio> element).
+  mediaDest = audioCtx.createMediaStreamDestination();
+  outputEl.srcObject = mediaDest.stream;
+  outputEl.play && outputEl.play().catch(() => {});
   nextPlayTime = audioCtx.currentTime;
   return audioCtx;
 }
 
 function playPcm16(arrayBuffer) {
   const ctx = ensureAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
   const int16 = new Int16Array(arrayBuffer);
   const float32 = new Float32Array(int16.length);
   for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 0x8000;
@@ -209,7 +246,10 @@ function playPcm16(arrayBuffer) {
 
   const source = ctx.createBufferSource();
   source.buffer = buf;
-  source.connect(ctx.destination);
+  // Feed BOTH the captured media stream (what Recall hears) and the default
+  // destination (harmless, helps local debugging via Remote DevTools).
+  source.connect(mediaDest);
+  try { source.connect(ctx.destination); } catch (_) {}
 
   // Schedule chunks sequentially with no gap.
   const now = ctx.currentTime;

@@ -43,6 +43,7 @@ from app.logger import get_logger, log_timing, setup_logging
 from app.output_media import copilot_bootstrap_mp3_b64
 from app import recall_client as recall
 from app.pipeline.bot_bridge import router as bot_bridge_router
+from app.pipeline.recall_audio_ws import router as recall_audio_router
 from app.github_webhook import router as github_webhook_router
 from app.crud_routes import router as crud_router
 
@@ -124,6 +125,8 @@ app.add_middleware(
 
 # ─── v2 voice pipeline: bot-page WebSocket bridge ─────────────────────────────
 app.include_router(bot_bridge_router)
+# ─── v2 voice pipeline: inbound meeting audio (Recall realtime websocket) ─────
+app.include_router(recall_audio_router)
 # ─── Phase 4b: GitHub webhook + connect-repo endpoint ─────────────────────────
 app.include_router(github_webhook_router)
 # ─── Cloud SQL migration: CRUD/read endpoints (replaces frontend→Supabase) ────
@@ -719,6 +722,14 @@ async def start_meeting(
     })
     public = _public_base()
     realtime_url = f"{public}/api/webhooks/recall/realtime?meeting_id={meeting_row_id}"
+    # v2 server-side audio websocket — Recall connects here and streams meeting
+    # audio. Trailing slash BEFORE the query params is required by Recall (else
+    # HTTP 400). Authenticated with the per-meeting bridge token.
+    from urllib.parse import quote as _quote
+    backend_ws = public.replace("https://", "wss://").replace("http://", "ws://")
+    audio_ws_url = (
+        f"{backend_ws}/ws/recall-audio/{meeting_row_id}/?token={_quote(bridge_token or '')}"
+    )
     bot_name = (agent.get("name") or "Briefed").strip()[:100]
     voice_id = str(agent.get("voice_id") or "f786b574-daa5-4673-aa0c-cbe3e8534c02")
     log.info("start_meeting", meeting_id=meeting_row_id,
@@ -733,9 +744,17 @@ async def start_meeting(
                 "language_code": "en", "mode": "prioritize_low_latency"
             }}},
             "video_mixed_mp4": {}, "audio_mixed_mp3": {},
-            # v2 doesn't need the transcript webhook — Pipecat runs its own STT.
-            # Keep it for v1 modes only.
-            **({} if use_v2 else {
+            # v2: Pipecat runs its own STT, but it needs the meeting audio. Recall
+            # does NOT feed audio into the output-media webpage's mic, so we
+            # receive it over a server-side realtime websocket instead
+            # (audio_mixed_raw.data → /ws/recall-audio). Registered below.
+            # Non-v2 modes keep the transcript webhook for the legacy pipeline.
+            **({
+                "audio_mixed_raw": {},
+                "realtime_endpoints": [
+                    {"type": "websocket", "url": audio_ws_url, "events": ["audio_mixed_raw.data"]}
+                ],
+            } if use_v2 else {
                 "realtime_endpoints": [
                     {"type": "webhook", "url": realtime_url, "events": ["transcript.data"]}
                 ]
@@ -752,8 +771,8 @@ async def start_meeting(
         }},
     }
     if use_v2:
-        # v2: bot-page connects to backend Pipecat over WS, streams PCM both ways.
-        backend_ws = public.replace("https://", "wss://").replace("http://", "ws://")
+        # v2: bot-page connects to backend Pipecat over WS for OUTPUT (TTS) only;
+        # meeting audio comes in via the audio_ws_url registered above.
         from urllib.parse import urlencode
         import time as _time
         page_params = urlencode({
@@ -1130,6 +1149,12 @@ async def recall_bot_status(
     if event in status_map:
         repo.update_meeting(meeting_id, status_map[event])
         log.info("bot_status_updated", meeting_id=meeting_id, event=event)
+    # Tear down the live v2 voice pipeline when the meeting ends or the bot dies.
+    if event in ("bot.call_ended", "bot.fatal", "bot.done"):
+        from app.pipeline import session as _session
+        sess = _session.get(meeting_id)
+        if sess is not None:
+            background_tasks.add_task(sess.teardown, event)
     if event == "bot.done":
         repo.update_meeting(meeting_id, {"status": "processing", "updated_at": now})
         background_tasks.add_task(finalize_meeting, bot_id)

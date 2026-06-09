@@ -1,0 +1,179 @@
+"""
+Custom Pipecat transports for the split-socket meeting pipeline.
+
+Why custom transports instead of FastAPIWebsocketTransport?
+  1. One meeting uses TWO websockets: Recall pushes meeting audio to our
+     `/ws/recall-audio/...` endpoint (INPUT), while the bot-page connects to
+     `/ws/bot-bridge/...` to play TTS into the meeting (OUTPUT). The stock
+     FastAPIWebsocketTransport assumes a single bidirectional socket.
+  2. The stock transport drops every frame unless a `serializer` is configured
+     (`if not self._params.serializer: continue/return` in pipecat 1.2.1's
+     transports/websocket/fastapi.py). We send/receive RAW PCM16 with no
+     serializer, so we own both byte paths directly.
+
+RecallAudioInputTransport
+  - No socket of its own. The Recall audio WS handler decodes PCM and calls
+    `feed_pcm(bytes)`, which becomes an InputAudioRawFrame on the pipeline's
+    audio-in queue. 16 kHz / mono / S16LE (matches what Recall sends and what
+    Deepgram wants).
+
+BotPageOutputTransport
+  - Wraps the bot-page WebSocket. BaseOutputTransport already does all the
+    chunking / interruption / bot-speaking bookkeeping and calls
+    `write_audio_frame()` once per 10ms*chunks slice; we just send the raw bytes
+    and emulate device pacing (copied from FastAPIWebsocketOutputTransport so the
+    bot-page's AudioContext scheduler doesn't under/over-run). 24 kHz / mono.
+  - Control messages (`{"type": "hand"|"bot_state", ...}`) are sent out-of-band
+    via the MeetingSession holding the same WebSocket, not through this
+    transport — see app/pipeline/session.py.
+
+The input is constructed standalone in app/pipeline/recall_audio_ws.py (so audio
+can start before the bot-page connects); the output is constructed in
+app/pipeline/runner.py from the session's bot-page socket.
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+
+from fastapi import WebSocket
+from starlette.websockets import WebSocketState
+
+from pipecat.frames.frames import (
+    CancelFrame,
+    EndFrame,
+    Frame,
+    InputAudioRawFrame,
+    InterruptionFrame,
+    OutputAudioRawFrame,
+    StartFrame,
+)
+from pipecat.processors.frame_processor import FrameDirection
+from pipecat.transports.base_input import BaseInputTransport
+from pipecat.transports.base_output import BaseOutputTransport
+from pipecat.transports.base_transport import TransportParams
+
+from app.logger import get_logger
+
+log = get_logger(__name__)
+
+
+class RecallAudioInputTransport(BaseInputTransport):
+    """Input transport fed externally by the Recall audio websocket handler."""
+
+    # Max frames to hold before the pipeline starts. Recall keeps the audio WS
+    # open and streams continuously, so this only matters in the window between
+    # the Recall socket connecting and the bot-page connecting (pipeline start).
+    # ~3000 frames covers a generous window of small chunks; on overflow we drop
+    # the OLDEST so the bot hears the most recent speech, and log once.
+    _PRESTART_MAX = 3000
+
+    def __init__(self, params: TransportParams, **kwargs):
+        super().__init__(params, **kwargs)
+        # Frames that arrive before the pipeline has started (and thus before
+        # `_audio_in_queue` exists) are buffered so we don't lose the opening
+        # words. Bounded so a never-starting pipeline can't grow unbounded.
+        self._prestart_buffer: list[InputAudioRawFrame] = []
+        self._prestart_overflowed = False
+        self._ready = False
+        self._frames_in = 0
+
+    async def start(self, frame: StartFrame):
+        await super().start(frame)
+        # Create the audio-in queue + task. The stock FastAPI input transport
+        # does this from its receive loop; we have no receive loop (audio is
+        # pushed in via feed_pcm), so we trigger it here.
+        await self.set_transport_ready(frame)
+        self._ready = True
+        # Flush anything buffered before the pipeline was ready.
+        if self._prestart_buffer:
+            log.info("recall_input_flush_prestart", count=len(self._prestart_buffer))
+            for f in self._prestart_buffer:
+                await self.push_audio_frame(f)
+            self._prestart_buffer.clear()
+
+    async def feed_pcm(self, pcm: bytes) -> None:
+        """Called by the Recall audio WS handler with raw PCM16 16k mono bytes."""
+        if not pcm:
+            return
+        self._frames_in += 1
+        frame = InputAudioRawFrame(audio=pcm, sample_rate=16000, num_channels=1)
+        if not self._ready:
+            self._prestart_buffer.append(frame)
+            if len(self._prestart_buffer) > self._PRESTART_MAX:
+                self._prestart_buffer.pop(0)  # drop oldest; keep most recent speech
+                if not self._prestart_overflowed:
+                    self._prestart_overflowed = True
+                    log.warning("recall_input_prestart_overflow", cap=self._PRESTART_MAX)
+            return
+        await self.push_audio_frame(frame)
+
+    @property
+    def frames_in(self) -> int:
+        return self._frames_in
+
+
+class BotPageOutputTransport(BaseOutputTransport):
+    """Output transport that writes raw PCM16 24k mono to the bot-page WebSocket."""
+
+    def __init__(self, params: TransportParams, websocket: WebSocket, **kwargs):
+        super().__init__(params, **kwargs)
+        self._ws = websocket
+        # Emulate an audio device clock so we don't blast the whole TTS buffer at
+        # the bot-page at once (copied from FastAPIWebsocketOutputTransport).
+        self._send_interval = 0.0
+        self._next_send_time = 0.0
+        self._initialized = False
+
+    def set_websocket(self, websocket: WebSocket) -> None:
+        """Swap in a reconnected bot-page socket without rebuilding the pipeline."""
+        self._ws = websocket
+
+    async def start(self, frame: StartFrame):
+        await super().start(frame)
+        # audio_chunk_size / sample_rate is the duration of one written chunk;
+        # halve it so we stay a little ahead of real time (same heuristic as the
+        # stock FastAPI output transport).
+        if self.sample_rate:
+            self._send_interval = (self.audio_chunk_size / self.sample_rate) / 2
+        # CRITICAL: BaseOutputTransport.start() does NOT register the default
+        # media sender — set_transport_ready() does. The stock FastAPI transport
+        # calls it from start(); we must too, or every TTSAudioRawFrame is
+        # dropped with "destination [None] not registered" and nothing is heard.
+        if not self._initialized:
+            self._initialized = True
+            await self.set_transport_ready(frame)
+
+    def _connected(self) -> bool:
+        ws = self._ws
+        return (
+            ws is not None
+            and ws.client_state == WebSocketState.CONNECTED
+            and ws.application_state != WebSocketState.DISCONNECTED
+        )
+
+    async def write_audio_frame(self, frame: OutputAudioRawFrame) -> bool:
+        if not self._connected():
+            return False
+        try:
+            await self._ws.send_bytes(frame.audio)
+        except Exception as e:
+            log.warning("bot_output_send_failed", error=str(e)[:160])
+            return False
+        await self._write_audio_sleep()
+        return True
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        # Reset the send clock on interruption so post-barge-in audio starts fresh.
+        if isinstance(frame, InterruptionFrame):
+            self._next_send_time = 0.0
+
+    async def _write_audio_sleep(self) -> None:
+        current_time = time.monotonic()
+        sleep_duration = max(0.0, self._next_send_time - current_time)
+        await asyncio.sleep(sleep_duration)
+        if sleep_duration == 0.0:
+            self._next_send_time = time.monotonic() + self._send_interval
+        else:
+            self._next_send_time += self._send_interval
