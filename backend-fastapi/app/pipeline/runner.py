@@ -179,12 +179,13 @@ class MeetingPipeline:
                 interim_results=True,
                 punctuate=True,
                 smart_format=True,
-                # Endpointing is what was missing: without it Deepgram waits a
-                # long, conservative time before emitting the FINAL transcript,
-                # which was the entire ~6-12s latency. Finalize ~300ms after the
-                # speaker goes silent; emit an utterance-end event after 1s.
+                # `endpointing` makes Deepgram emit the FINAL (is_final) transcript
+                # ~300ms after the speaker goes silent, instead of the slow default
+                # that caused the 6-12s lag. Do NOT set utterance_end_ms — with it,
+                # Deepgram finalizes via UtteranceEnd events that this Pipecat
+                # service doesn't turn into final TranscriptionFrames, so the gate
+                # only ever sees interims and the bot never responds.
                 endpointing=300,
-                utterance_end_ms=1000,
             ),
         )
 
