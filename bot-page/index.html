@@ -233,6 +233,12 @@ function ensureAudioCtx() {
   return audioCtx;
 }
 
+// Jitter buffer: schedule audio slightly ahead of real time so brief network
+// jitter between chunks never causes an underrun (the "breaking" sound). When
+// we've fallen behind (nextPlayTime < now), restart the cursor a JITTER_LEAD
+// ahead of now instead of exactly at now.
+const JITTER_LEAD = 0.15;  // 150ms cushion
+
 function playPcm16(arrayBuffer) {
   const ctx = ensureAudioCtx();
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -251,9 +257,10 @@ function playPcm16(arrayBuffer) {
   source.connect(mediaDest);
   try { source.connect(ctx.destination); } catch (_) {}
 
-  // Schedule chunks sequentially with no gap.
+  // Schedule chunks sequentially. If we've underrun (cursor fell behind real
+  // time), restart with a small cushion so playback doesn't stutter.
   const now = ctx.currentTime;
-  const startAt = Math.max(nextPlayTime, now);
+  const startAt = nextPlayTime < now ? now + JITTER_LEAD : nextPlayTime;
   source.start(startAt);
   nextPlayTime = startAt + buf.duration;
 }
