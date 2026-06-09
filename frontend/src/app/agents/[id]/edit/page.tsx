@@ -1,23 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiGet } from "@/lib/server-api";
 import { requireServerUser } from "@/lib/auth";
 import { AgentForm } from "@/components/AgentForm";
 import { ContextBuilder } from "@/components/ContextBuilder";
+import type { Agent } from "@/types/agents";
 
 type Props = { params: Promise<{ id: string }> };
 
 export default async function EditAgentPage({ params }: Props) {
   const { id } = await params;
   await requireServerUser(`/agents/${id}/edit`);
-  const supabase = await getSupabaseDbClient();
-  const { data: agent, error } = await supabase
-    .from("agents")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error || !agent) notFound();
+  let agent: Agent | null = null;
+  try {
+    agent = await serverApiGet<Agent>(`/api/agents/${id}`);
+  } catch {
+    notFound();
+  }
+  if (!agent) notFound();
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "48px 24px" }}>

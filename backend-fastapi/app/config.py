@@ -12,10 +12,16 @@ def get_settings() -> dict[str, str | None]:
         # Public URL for Recall.ai webhooks (ngrok locally, Cloud Run URL in prod)
         "public_api_base": os.getenv("PUBLIC_API_BASE", "").strip().rstrip("/") or None,
 
-        # Supabase
-        "supabase_url": os.getenv("SUPABASE_URL", "").strip().rstrip("/") or None,
-        "supabase_service_role_key": os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip() or None,
-        "supabase_jwt_secret": os.getenv("SUPABASE_JWT_SECRET", "").strip() or None,
+        # Cloud SQL (PostgreSQL) — replaces Supabase
+        # On Cloud Run set CLOUD_SQL_CONNECTION_NAME (project:region:instance);
+        # locally set DB_HOST to the instance public IP. See app/sql.py.
+        "cloud_sql_connection_name": os.getenv("CLOUD_SQL_CONNECTION_NAME", "").strip() or None,
+        "db_host": os.getenv("DB_HOST", "").strip() or None,
+        "db_name": os.getenv("DB_NAME", "briefed").strip() or "briefed",
+        "db_user": os.getenv("DB_USER", "postgres").strip() or "postgres",
+        "db_pass": os.getenv("DB_PASS", "").strip() or None,
+        # GCS bucket for meeting screenshots (replaces Supabase Storage)
+        "screenshots_bucket": os.getenv("SCREENSHOTS_BUCKET", "").strip() or None,
 
         # Google Cloud (Vertex AI + TTS)
         "gcp_project": os.getenv("GCP_PROJECT", "").strip() or None,

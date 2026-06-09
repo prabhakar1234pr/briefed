@@ -3,7 +3,7 @@ Context ingestion pipeline:
   - Fetch URL content (GitHub, docs, raw text)
   - Chunk into ~512-token segments
   - Embed via Vertex AI
-  - Store in Supabase context_chunks table (with pgvector)
+  - Store in Cloud SQL context_chunks table (with pgvector)
   - Semantic search for Q&A
 """
 import asyncio
@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from app.db import get_supabase_service
+from app import repo
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,6 @@ async def ingest_source(
     from app.ai_client import embed_text
     from app.github_ingest import ingest_github_repo_to_chunks, parse_github_repo_url
 
-    db = get_supabase_service()
     primary_source_url = content.strip() if source_type == "url" else (label or "manual")
 
     chunk_pairs: list[tuple[str, str]] = []
@@ -119,13 +118,7 @@ async def ingest_source(
     if not chunk_pairs:
         raise RuntimeError("No chunks generated from content")
 
-    existing_res = (
-        db.table("context_chunks")
-        .select("content_hash")
-        .eq("agent_id", agent_id)
-        .execute()
-    )
-    existing_hashes = {r["content_hash"] for r in (existing_res.data or [])}
+    existing_hashes = repo.existing_content_hashes(agent_id)
 
     new_rows: list[tuple[str, str, str]] = []
     for chunk, src_url in chunk_pairs:
@@ -162,7 +155,7 @@ async def ingest_source(
             }
             for j in range(len(batch))
         ]
-        db.table("context_chunks").insert(rows).execute()
+        repo.insert_context_chunks(rows)
         inserted += len(rows)
 
     return {"chunks_added": inserted, "source_url": primary_source_url}
@@ -182,27 +175,12 @@ async def search_context(agent_id: str, query: str, top_k: int = 5) -> list[str]
         logger.exception("search_context embed failed: %s", e)
         return []
 
-    db = get_supabase_service()
-
     try:
-        # Use pgvector cosine similarity via Supabase RPC
-        res = db.rpc(
-            "match_context_chunks",
-            {
-                "p_agent_id": agent_id,
-                "query_embedding": query_vec,
-                "match_count": top_k,
-            },
-        ).execute()
-        return [r["content"] for r in (res.data or [])]
+        # pgvector cosine similarity via the match_context_chunks SQL function
+        res = repo.match_context_chunks(agent_id, query_vec, match_count=top_k)
+        return [r["content"] for r in res]
     except Exception as e:
-        logger.exception("search_context rpc failed: %s", e)
+        logger.exception("search_context match failed: %s", e)
         # Fallback: return most recent chunks
-        fallback = (
-            db.table("context_chunks")
-            .select("content")
-            .eq("agent_id", agent_id)
-            .limit(top_k)
-            .execute()
-        )
-        return [r["content"] for r in (fallback.data or [])]
+        fallback = repo.list_context_chunks(agent_id, columns="content", limit=top_k)
+        return [r["content"] for r in fallback]

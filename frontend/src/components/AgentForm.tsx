@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useSupabaseDbClient } from "@/lib/supabase-browser";
+import { createAgent, updateAgent } from "@/lib/meeting-api";
 import type { Agent, AgentMode } from "@/types/agents";
 import {
   TTS_VOICES,
@@ -269,7 +269,6 @@ function DropdownItem<T extends string>({
 
 export function AgentForm(props: Props) {
   const router = useRouter();
-  const supabase = useSupabaseDbClient();
   const init = props.mode === "edit" ? props.initialAgent : null;
 
   const [name, setName] = useState(init?.name ?? "");
@@ -314,10 +313,6 @@ export function AgentForm(props: Props) {
     if (!trimmed) { setError("Agent name is required."); return; }
 
     setSaving(true);
-    const meResp = await fetch("/api/auth/me");
-    const meData = await meResp.json();
-    if (!meData.authenticated || !meData.user?.sub) { setError("Not signed in."); setSaving(false); return; }
-    const userId = meData.user.sub;
 
     const row = {
       name: trimmed,
@@ -332,28 +327,21 @@ export function AgentForm(props: Props) {
     };
 
     if (props.mode === "create") {
-      const { data, error: insertError } = await supabase
-        .from("agents")
-        .insert({ ...row, user_id: userId })
-        .select("id")
-        .single();
-      if (insertError) { setError(insertError.message); setSaving(false); return; }
+      const res = await createAgent(row);
+      if (!res.ok) { setError(res.error); setSaving(false); return; }
       if (props.onCreateSuccess) {
-        props.onCreateSuccess(data.id);
+        props.onCreateSuccess(res.id);
         setSaving(false);
         router.refresh();
         return;
       }
-      router.push(`/agents/${data.id}/edit`);
+      router.push(`/agents/${res.id}/edit`);
       router.refresh();
       return;
     }
 
-    const { error: updateError } = await supabase
-      .from("agents")
-      .update(row)
-      .eq("id", props.initialAgent.id);
-    if (updateError) { setError(updateError.message); setSaving(false); return; }
+    const res = await updateAgent(props.initialAgent.id, row);
+    if (!res.ok) { setError(res.error); setSaving(false); return; }
     setSaved(true);
     setSaving(false);
     setTimeout(() => setSaved(false), 3000);

@@ -38,12 +38,13 @@ from app.config import get_settings as _gs; _gs.cache_clear()
 
 from app.auth_deps import get_user_id
 from app.config import get_settings
-from app.db import get_supabase_service
+from app import repo
 from app.logger import get_logger, log_timing, setup_logging
 from app.output_media import copilot_bootstrap_mp3_b64
 from app import recall_client as recall
 from app.pipeline.bot_bridge import router as bot_bridge_router
 from app.github_webhook import router as github_webhook_router
+from app.crud_routes import router as crud_router
 
 log = get_logger(__name__)
 
@@ -125,6 +126,8 @@ app.add_middleware(
 app.include_router(bot_bridge_router)
 # ─── Phase 4b: GitHub webhook + connect-repo endpoint ─────────────────────────
 app.include_router(github_webhook_router)
+# ─── Cloud SQL migration: CRUD/read endpoints (replaces frontend→Supabase) ────
+app.include_router(crud_router)
 
 
 # ─── Request models ───────────────────────────────────────────────────────────
@@ -244,14 +247,13 @@ def _webhook_secret_ok(request: Request) -> bool:
 
 async def refresh_recall_media_urls(bot_id: str) -> None:
     try:
-        db = get_supabase_service()
+        meeting = repo.get_meeting_by_bot(bot_id, columns="id")
     except RuntimeError as e:
         log.warning("refresh_media_urls_skip", error=str(e))
         return
-    res = db.table("meetings").select("id").eq("bot_id", bot_id).limit(1).execute()
-    if not res.data:
+    if not meeting:
         return
-    meeting_id = res.data[0]["id"]
+    meeting_id = meeting["id"]
     try:
         bot = await recall.retrieve_bot(bot_id)
     except Exception as e:
@@ -270,7 +272,7 @@ async def refresh_recall_media_urls(bot_id: str) -> None:
     if audio_u:
         update["audio_url"] = audio_u
     if len(update) > 1:
-        db.table("meetings").update(update).eq("id", meeting_id).execute()
+        repo.update_meeting(meeting_id, update)
         log.info("media_urls_refreshed", meeting_id=meeting_id,
                  has_video=bool(video_u), has_audio=bool(audio_u))
 
@@ -283,15 +285,13 @@ async def finalize_meeting(bot_id: str) -> None:
 
     log.info("finalize_meeting_start", bot_id=bot_id)
     try:
-        db = get_supabase_service()
+        meeting = repo.get_meeting_by_bot(bot_id, columns="id, status, agent_id, user_id")
     except RuntimeError as e:
         log.warning("finalize_meeting_skip", error=str(e))
         return
 
-    res = db.table("meetings").select("id, status, agent_id, user_id").eq("bot_id", bot_id).limit(1).execute()
-    if not res.data:
+    if not meeting:
         return
-    meeting = res.data[0]
     if meeting.get("status") == "completed":
         return
     meeting_id = meeting["id"]
@@ -321,16 +321,12 @@ async def finalize_meeting(bot_id: str) -> None:
         log.exception("finalize_recall_fetch_failed", meeting_id=meeting_id, error=str(e))
 
     if not full_text:
-        lines_res = (
-            db.table("transcript_lines")
-            .select("speaker_name, content")
-            .eq("meeting_id", meeting_id)
-            .order("spoken_at")
-            .execute()
+        lines_data = repo.list_transcript_lines(
+            meeting_id, columns="speaker_name, content"
         )
         parts = [
             f"{r.get('speaker_name','Unknown')}: {r['content']}"
-            for r in (lines_res.data or []) if r.get("content")
+            for r in lines_data if r.get("content")
         ]
         full_text = "\n".join(parts) if parts else None
         log.info("transcript_from_db", meeting_id=meeting_id, lines=len(parts))
@@ -349,9 +345,9 @@ async def finalize_meeting(bot_id: str) -> None:
         try:
             agent_name = "Briefed"
             if agent_id:
-                ag_res = db.table("agents").select("name").eq("id", agent_id).limit(1).execute()
-                if ag_res.data:
-                    agent_name = ag_res.data[0].get("name") or "Briefed"
+                ag = repo.get_agent(agent_id)
+                if ag:
+                    agent_name = ag.get("name") or "Briefed"
             with log_timing(log, "generate_intelligence", meeting_id=meeting_id):
                 intel = await generate_meeting_intelligence(full_text, agent_name)
             if intel.get("summary"):
@@ -363,7 +359,7 @@ async def finalize_meeting(bot_id: str) -> None:
         except Exception as e:
             log.exception("intelligence_failed", meeting_id=meeting_id, error=str(e))
 
-    db.table("meetings").update(update).eq("id", meeting_id).execute()
+    repo.update_meeting(meeting_id, update)
 
     # ── Phase 4a: write this meeting into the agent's long-term memory ──
     # So Sam's next meeting knows what was decided in this one. We push the
@@ -403,7 +399,7 @@ async def finalize_meeting(bot_id: str) -> None:
 
     if user_id and intel:
         await try_send_post_meeting_brief(
-            db, meeting_id=str(meeting_id), user_id=str(user_id),
+            meeting_id=str(meeting_id), user_id=str(user_id),
             agent_id=str(agent_id) if agent_id else None, intel=intel,
         )
 
@@ -428,7 +424,6 @@ async def process_copilot_trigger(
     if agent.get("mode") == "proctor":
         return
 
-    db = get_supabase_service()
     agent_id   = str(agent.get("id") or "")
     agent_name = str(agent.get("name") or "Briefed")
     voice_id   = str(agent.get("voice_id") or "en-US-Neural2-J")
@@ -448,20 +443,17 @@ async def process_copilot_trigger(
             screenshot_url: str | None = None
             if b64:
                 try:
-                    mres = db.table("meetings").select("user_id").eq("id", meeting_id).limit(1).execute()
-                    uid = mres.data[0]["user_id"] if mres.data else None
+                    from app.storage import upload_screenshot
+                    m = repo.get_meeting(meeting_id)
+                    uid = m.get("user_id") if m else None
                     if uid:
                         raw = base64.b64decode(b64)
                         path = f"{uid}/{meeting_id}/{uuid.uuid4().hex}.jpg"
-                        db.storage.from_("meeting-screenshots").upload(
-                            path, raw, file_options={"content-type": "image/jpeg"}
+                        screenshot_url = upload_screenshot(data=raw, path=path)
+                        repo.insert_screenshot(
+                            meeting_id=meeting_id, storage_path=path,
+                            taken_at=spoken_at, triggered_by="voice",
                         )
-                        base = (get_settings().get("supabase_url") or "").rstrip("/")
-                        screenshot_url = f"{base}/storage/v1/object/public/meeting-screenshots/{path}"
-                        db.table("screenshots").insert({
-                            "meeting_id": meeting_id, "storage_path": path,
-                            "taken_at": spoken_at, "triggered_by": "voice",
-                        }).execute()
                         log.info("screenshot_saved", meeting_id=meeting_id, path=path)
                 except Exception as e:
                     log.exception("screenshot_upload_failed", meeting_id=meeting_id, error=str(e))
@@ -469,19 +461,19 @@ async def process_copilot_trigger(
                 reply = "Screenshot saved."
             else:
                 # Check if output_media mode — screenshots not supported there
-                m_mode = db.table("meetings").select("copilot_mode").eq("id", meeting_id).limit(1).execute()
-                is_om = (m_mode.data or [{}])[0].get("copilot_mode") == "output_media"
+                m_mode = repo.get_meeting(meeting_id)
+                is_om = (m_mode or {}).get("copilot_mode") == "output_media"
                 reply = ("Screenshots aren't available in Output Media mode. "
                          "I can answer questions about what's being discussed instead."
                          if is_om else "I wasn't able to capture a screenshot right now. Please try again.")
             mp3 = await text_to_speech_mp3(reply, voice_id)
             await inject_audio(bot_id, mp3)
-            db.table("meeting_interactions").insert({
+            repo.insert_interaction({
                 "meeting_id": meeting_id, "interaction_type": "screenshot",
                 "trigger_text": content, "response_text": reply,
                 "screenshot_b64": None if screenshot_url else b64,
                 "screenshot_url": screenshot_url, "spoken_at": spoken_at,
-            }).execute()
+            })
             return
 
         # ── Q&A: full streaming pipeline ─────────────────────────────────
@@ -492,7 +484,7 @@ async def process_copilot_trigger(
             ack_mp3, context_chunks, recent_transcript = await asyncio.gather(
                 thinking_acknowledgement(voice_id),
                 search_context(agent_id, content, top_k=6),
-                _fetch_recent_transcript(db, meeting_id, limit=40),
+                _fetch_recent_transcript(meeting_id, limit=40),
             )
             log.info("gather_done",
                      meeting_id=meeting_id,
@@ -548,13 +540,13 @@ async def process_copilot_trigger(
 
         if response_parts:
             full = " ".join(response_parts)
-            db.table("meeting_interactions").insert({
+            repo.insert_interaction({
                 "meeting_id": meeting_id,
                 "interaction_type": trigger_type,
                 "trigger_text": content,
                 "response_text": full,
                 "spoken_at": spoken_at,
-            }).execute()
+            })
             log.info("interaction_saved",
                      meeting_id=meeting_id, trigger=trigger_type,
                      response_chars=len(full), sentences=len(response_parts))
@@ -585,19 +577,14 @@ async def _inject_and_log(
 
 
 async def _fetch_recent_transcript(
-    db: Any, meeting_id: str, limit: int = 20
+    meeting_id: str, limit: int = 20
 ) -> str:
-    lines_res = (
-        db.table("transcript_lines")
-        .select("speaker_name, content")
-        .eq("meeting_id", meeting_id)
-        .order("spoken_at", desc=True)
-        .limit(limit)
-        .execute()
+    lines_data = repo.list_transcript_lines(
+        meeting_id, columns="speaker_name, content", desc=True, limit=limit
     )
     return "\n".join(
         f"{r.get('speaker_name','?')}: {r['content']}"
-        for r in reversed(lines_res.data or [])
+        for r in reversed(lines_data)
     )
 
 
@@ -623,9 +610,7 @@ async def add_context(
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> dict[str, Any]:
     from app.context_pipeline import ingest_source
-    db = get_supabase_service()
-    ag = db.table("agents").select("id").eq("id", agent_id).eq("user_id", user_id).limit(1).execute()
-    if not ag.data:
+    if not repo.get_agent(agent_id, user_id):
         raise HTTPException(status_code=404, detail="Agent not found")
     log.info("context_ingest_start", agent_id=agent_id,
              source_type=body.source_type, content_preview=body.content[:80])
@@ -645,16 +630,13 @@ def list_context(
     agent_id: str,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> dict[str, Any]:
-    db = get_supabase_service()
-    ag = db.table("agents").select("id").eq("id", agent_id).eq("user_id", user_id).limit(1).execute()
-    if not ag.data:
+    if not repo.get_agent(agent_id, user_id):
         raise HTTPException(status_code=404, detail="Agent not found")
-    res = (
-        db.table("context_chunks").select("id, source_url, content, created_at")
-        .eq("agent_id", agent_id).order("created_at", desc=True).execute()
+    chunk_rows = repo.list_context_chunks(
+        agent_id, columns="id, source_url, content, created_at", desc=True
     )
     sources: dict[str, dict] = {}
-    for row in res.data or []:
+    for row in chunk_rows:
         url = row["source_url"]
         key = _context_list_group_key(url)
         if key not in sources:
@@ -663,7 +645,7 @@ def list_context(
         entry["chunk_count"] += 1
         if row["created_at"] > entry["last_added"]:
             entry["last_added"] = row["created_at"]
-    return {"sources": list(sources.values()), "total_chunks": len(res.data or [])}
+    return {"sources": list(sources.values()), "total_chunks": len(chunk_rows)}
 
 
 @app.delete("/api/agents/{agent_id}/context")
@@ -672,25 +654,26 @@ def clear_context(
     source_url: str | None = Query(None),
     user_id: Annotated[str, Depends(get_user_id)] = None,
 ) -> dict[str, Any]:
-    db = get_supabase_service()
-    ag = db.table("agents").select("id").eq("id", agent_id).eq("user_id", user_id).limit(1).execute()
-    if not ag.data:
+    if not repo.get_agent(agent_id, user_id):
         raise HTTPException(status_code=404, detail="Agent not found")
-    q = db.table("context_chunks").delete().eq("agent_id", agent_id)
     if source_url:
         from app.github_ingest import parse_github_repo_url
         su = source_url.strip()
         ref = parse_github_repo_url(su)
         if ref:
             prefix = f"https://github.com/{ref.owner}/{ref.repo}/blob/"
-            q = q.like("source_url", f"{prefix}%")
+            repo.delete_context_chunks(agent_id, source_url_like=f"{prefix}%")
         else:
             blob_m = re.match(r"https://github\.com/([^/]+)/([^/]+)/blob/", su, re.IGNORECASE)
             if blob_m:
-                q = q.like("source_url", f"https://github.com/{blob_m.group(1)}/{blob_m.group(2)}/blob/%")
+                repo.delete_context_chunks(
+                    agent_id,
+                    source_url_like=f"https://github.com/{blob_m.group(1)}/{blob_m.group(2)}/blob/%",
+                )
             else:
-                q = q.eq("source_url", su)
-    q.execute()
+                repo.delete_context_chunks(agent_id, source_url_eq=su)
+    else:
+        repo.delete_context_chunks(agent_id)
     _agent_cache.pop(agent_id, None)
     log.info("context_cleared", agent_id=agent_id, source_url=source_url)
     return {"deleted": True}
@@ -705,14 +688,9 @@ async def start_meeting(
 ) -> dict[str, str]:
     if not body.join_now and not body.join_at:
         raise HTTPException(status_code=400, detail="join_at required when join_now is false")
-    db = get_supabase_service()
-    ag_res = (
-        db.table("agents").select("*")
-        .eq("id", body.agent_id).eq("user_id", user_id).limit(1).execute()
-    )
-    if not ag_res.data:
+    agent = repo.get_agent(body.agent_id, user_id)
+    if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    agent = ag_res.data[0]
     meeting_row_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     s = get_settings()
@@ -731,14 +709,14 @@ async def start_meeting(
         copilot_mode = "output_audio"
     bridge_token = _secrets.token_urlsafe(32) if use_v2 else None
 
-    db.table("meetings").insert({
+    repo.insert_meeting({
         "id": meeting_row_id, "user_id": user_id, "agent_id": body.agent_id,
         "meeting_link": body.meeting_link.strip(), "bot_id": None,
         "status": "scheduled", "copilot_mode": copilot_mode,
         "bridge_token": bridge_token,
         "scheduled_at": body.join_at if not body.join_now else None,
         "updated_at": now,
-    }).execute()
+    })
     public = _public_base()
     realtime_url = f"{public}/api/webhooks/recall/realtime?meeting_id={meeting_row_id}"
     bot_name = (agent.get("name") or "Briefed").strip()[:100]
@@ -839,16 +817,16 @@ async def start_meeting(
             out = await recall.create_bot(payload)
     except Exception as e:
         log.exception("recall_create_bot_failed", meeting_id=meeting_row_id, error=str(e))
-        db.table("meetings").update({"status": "failed", "updated_at": now}).eq("id", meeting_row_id).execute()
+        repo.update_meeting(meeting_row_id, {"status": "failed", "updated_at": now})
         raise HTTPException(status_code=502, detail=f"Recall.ai error: {e!s}") from e
     bot_id = out.get("id")
     if not bot_id:
-        db.table("meetings").update({"status": "failed", "updated_at": now}).eq("id", meeting_row_id).execute()
+        repo.update_meeting(meeting_row_id, {"status": "failed", "updated_at": now})
         raise HTTPException(status_code=502, detail="Recall.ai did not return bot id")
-    db.table("meetings").update({
+    repo.update_meeting(meeting_row_id, {
         "bot_id": str(bot_id), "status": "joining",
         "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", meeting_row_id).execute()
+    })
     log.info("meeting_started", meeting_id=meeting_row_id, bot_id=bot_id)
     return {"meeting_id": meeting_row_id, "bot_id": str(bot_id)}
 
@@ -858,19 +836,10 @@ def get_meeting(
     meeting_id: str,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> dict[str, Any]:
-    db = get_supabase_service()
-    m_res = (
-        db.table("meetings").select("*")
-        .eq("id", meeting_id).eq("user_id", user_id).limit(1).execute()
-    )
-    if not m_res.data:
+    meeting = repo.get_meeting(meeting_id, user_id)
+    if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    meeting = m_res.data[0]
-    lines_res = (
-        db.table("transcript_lines").select("*")
-        .eq("meeting_id", meeting_id).order("spoken_at").execute()
-    )
-    meeting["transcript_lines"] = lines_res.data or []
+    meeting["transcript_lines"] = repo.list_transcript_lines(meeting_id)
     return meeting
 
 
@@ -879,16 +848,9 @@ def get_interactions(
     meeting_id: str,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> dict[str, Any]:
-    db = get_supabase_service()
-    m = db.table("meetings").select("id").eq("id", meeting_id).eq("user_id", user_id).limit(1).execute()
-    if not m.data:
+    if not repo.get_meeting(meeting_id, user_id):
         raise HTTPException(status_code=404, detail="Meeting not found")
-    res = (
-        db.table("meeting_interactions")
-        .select("id, interaction_type, trigger_text, response_text, spoken_at, created_at, screenshot_url, audio_url")
-        .eq("meeting_id", meeting_id).order("spoken_at").execute()
-    )
-    return {"interactions": res.data or []}
+    return {"interactions": repo.list_interactions(meeting_id)}
 
 
 @app.post("/api/agents/{agent_id}/ask")
@@ -899,19 +861,16 @@ async def ask_agent(
 ) -> dict[str, Any]:
     from app.ai_client import answer_question
     from app.context_pipeline import search_context
-    db = get_supabase_service()
-    ag = db.table("agents").select("*").eq("id", agent_id).eq("user_id", user_id).limit(1).execute()
-    if not ag.data:
+    agent = repo.get_agent(agent_id, user_id)
+    if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    agent = ag.data[0]
     transcript = None
     if body.meeting_id:
-        lines = (
-            db.table("transcript_lines").select("speaker_name, content")
-            .eq("meeting_id", body.meeting_id).order("spoken_at").execute()
+        lines = repo.list_transcript_lines(
+            body.meeting_id, columns="speaker_name, content"
         )
         transcript = "\n".join(
-            f"{r.get('speaker_name','?')}: {r['content']}" for r in (lines.data or [])
+            f"{r.get('speaker_name','?')}: {r['content']}" for r in lines
         )
     log.info("ask_agent", agent_id=agent_id, question=body.question[:80])
     with log_timing(log, "ask_agent_full", agent_id=agent_id):
@@ -945,19 +904,14 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
     from app.output_media import inject_audio
 
     await websocket.accept()
-    db = get_supabase_service()
 
     # Validate meeting and get bot_id for audio injection
-    m_res = (
-        db.table("meetings")
-        .select("status, agent_id, bot_id")
-        .eq("id", meeting_id).limit(1).execute()
-    )
-    if not m_res.data or m_res.data[0].get("status") not in ("in_meeting", "joining"):
+    m = repo.get_meeting(meeting_id)
+    if not m or m.get("status") not in ("in_meeting", "joining"):
         await websocket.close(code=4004, reason="Meeting not found or not active")
         return
 
-    bot_id = m_res.data[0].get("bot_id") or ""
+    bot_id = m.get("bot_id") or ""
 
     interrupted = False
 
@@ -982,11 +936,10 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
             # Load agent
             agent = _get_cached_agent(agent_id)
             if agent is None:
-                ag_res = db.table("agents").select("*").eq("id", agent_id).limit(1).execute()
-                if not ag_res.data:
+                agent = repo.get_agent(agent_id)
+                if not agent:
                     await websocket.send_json({"type": "error", "message": "Agent not found"})
                     continue
-                agent = ag_res.data[0]
                 _set_cached_agent(agent_id, agent)
 
             agent_name = str(agent.get("name") or "Briefed")
@@ -1019,7 +972,7 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
             ack_mp3, context_chunks, recent_transcript = await asyncio.gather(
                 thinking_acknowledgement(voice_id),
                 _search_context_fast(),
-                _fetch_recent_transcript(db, meeting_id, limit=40),
+                _fetch_recent_transcript(meeting_id, limit=40),
             )
             log.info("ws_gather_done",
                      meeting_id=meeting_id,
@@ -1071,13 +1024,13 @@ async def ws_copilot(websocket: WebSocket, meeting_id: str) -> None:
             # Save interaction
             if response_parts:
                 full = " ".join(response_parts)
-                db.table("meeting_interactions").insert({
+                repo.insert_interaction({
                     "meeting_id": meeting_id,
                     "interaction_type": "qa",
                     "trigger_text": question,
                     "response_text": full,
                     "spoken_at": datetime.now(timezone.utc).isoformat(),
-                }).execute()
+                })
                 log.info("ws_interaction_saved",
                          meeting_id=meeting_id,
                          response_chars=len(full),
@@ -1158,14 +1111,13 @@ async def recall_bot_status(
     if not bot_id:
         return {"ok": "true"}
     try:
-        db = get_supabase_service()
+        meeting = repo.get_meeting_by_bot(bot_id, columns="id")
     except RuntimeError:
         return {"ok": "true"}
-    res = db.table("meetings").select("id").eq("bot_id", bot_id).limit(1).execute()
-    if not res.data:
+    if not meeting:
         log.warning("bot_status_unknown_bot", bot_id=bot_id, event=event)
         return {"ok": "true"}
-    meeting_id = res.data[0]["id"]
+    meeting_id = meeting["id"]
     now = datetime.now(timezone.utc).isoformat()
     status_map = {
         "bot.joining_call":          {"status": "joining",    "updated_at": now},
@@ -1176,10 +1128,10 @@ async def recall_bot_status(
         "bot.fatal":                 {"status": "failed",     "updated_at": now},
     }
     if event in status_map:
-        db.table("meetings").update(status_map[event]).eq("id", meeting_id).execute()
+        repo.update_meeting(meeting_id, status_map[event])
         log.info("bot_status_updated", meeting_id=meeting_id, event=event)
     if event == "bot.done":
-        db.table("meetings").update({"status": "processing", "updated_at": now}).eq("id", meeting_id).execute()
+        repo.update_meeting(meeting_id, {"status": "processing", "updated_at": now})
         background_tasks.add_task(finalize_meeting, bot_id)
     elif event in ("recording.done", "video_mixed.done", "audio_mixed.done"):
         background_tasks.add_task(refresh_recall_media_urls, bot_id)
@@ -1207,16 +1159,15 @@ async def recall_realtime(
 
 
 async def _handle_realtime_transcript(body: dict[str, Any], meeting_id: str | None) -> None:
-    try:
-        db = get_supabase_service()
-    except RuntimeError:
-        return
     bot_id, text, speaker, words_payload = _extract_realtime_transcript(body)
     resolved_id: str | None = meeting_id
     if not resolved_id and bot_id:
-        res = db.table("meetings").select("id").eq("bot_id", bot_id).limit(1).execute()
-        if res.data:
-            resolved_id = res.data[0]["id"]
+        try:
+            m = repo.get_meeting_by_bot(bot_id, columns="id")
+        except RuntimeError:
+            return
+        if m:
+            resolved_id = m["id"]
     if not resolved_id or not text:
         return
 
@@ -1239,19 +1190,18 @@ async def _handle_realtime_transcript(body: dict[str, Any], meeting_id: str | No
         spoken_at = datetime.now(timezone.utc)
 
     # Store transcript line
-    db.table("transcript_lines").insert({
-        "meeting_id": resolved_id, "speaker_name": speaker,
-        "content": str(text), "spoken_at": spoken_at.isoformat(),
-        "words": words_payload,
-    }).execute()
+    repo.insert_transcript_line(
+        meeting_id=resolved_id, speaker_name=speaker,
+        content=str(text), spoken_at=spoken_at.isoformat(),
+        words=words_payload,
+    )
     log.debug("transcript_line_stored",
               meeting_id=resolved_id, speaker=speaker, text_preview=text[:60])
 
     # Check meeting status
-    m_res = db.table("meetings").select("status, agent_id, bot_id, copilot_mode").eq("id", resolved_id).limit(1).execute()
-    if not m_res.data or m_res.data[0].get("status") != "in_meeting":
+    meeting_row = repo.get_meeting(resolved_id)
+    if not meeting_row or meeting_row.get("status") != "in_meeting":
         return
-    meeting_row = m_res.data[0]
 
     # Output Media: Q&A triggers are handled client-side by the bot page.
     # But screenshot and fact-check still need webhook-side detection.
@@ -1264,10 +1214,9 @@ async def _handle_realtime_transcript(body: dict[str, Any], meeting_id: str | No
     # Agent from cache
     agent = _get_cached_agent(agent_id)
     if agent is None:
-        ag_res = db.table("agents").select("*").eq("id", agent_id).limit(1).execute()
-        if not ag_res.data:
+        agent = repo.get_agent(agent_id)
+        if not agent:
             return
-        agent = ag_res.data[0]
         _set_cached_agent(agent_id, agent)
 
     agent_name = str(agent.get("name") or "Briefed")

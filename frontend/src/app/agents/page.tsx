@@ -1,15 +1,27 @@
 import Link from "next/link";
 import { DeleteRowButton } from "@/components/DeleteRowButton";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiGet } from "@/lib/server-api";
 import { requireServerUser } from "@/lib/auth";
+
+type AgentRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  updated_at: string;
+  proactive_fact_check: boolean;
+  screenshot_on_request: boolean;
+};
 
 export default async function AgentsListPage() {
   await requireServerUser("/agents");
-  const supabase = await getSupabaseDbClient();
-  const { data: agents, error } = await supabase
-    .from("agents")
-    .select("id, name, description, updated_at, proactive_fact_check, screenshot_on_request")
-    .order("updated_at", { ascending: false });
+  let agents: AgentRow[] = [];
+  let error: { message: string } | null = null;
+  try {
+    const data = await serverApiGet<{ agents: AgentRow[] }>("/api/agents");
+    agents = data.agents ?? [];
+  } catch (e) {
+    error = { message: e instanceof Error ? e.message : "Failed to load agents" };
+  }
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px" }}>

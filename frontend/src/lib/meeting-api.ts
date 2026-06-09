@@ -172,3 +172,63 @@ export async function askAgent(
   if (!r.ok) throw new Error(errorDetail(await r.json().catch(() => ({}))));
   return r.json();
 }
+
+// ── Agents (client-side CRUD) ───────────────────────────────────────────────
+
+export type AgentUpsertFields = {
+  name: string;
+  description?: string | null;
+  mode?: string;
+  persona_prompt?: string | null;
+  voice_id?: string | null;
+  bot_image_url?: string | null;
+  proactive_fact_check?: boolean;
+  screenshot_on_request?: boolean;
+  send_post_meeting_email?: boolean;
+};
+
+export async function createAgent(
+  fields: AgentUpsertFields,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  try {
+    const headers = await authHeaders();
+    const r = await fetch(`${API_BASE_URL}/api/agents`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fields),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: errorDetail(data) };
+    return { ok: true, id: (data as { id: string }).id };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function updateAgent(
+  agentId: string,
+  fields: Partial<AgentUpsertFields>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const headers = await authHeaders();
+    const r = await fetch(`${API_BASE_URL}/api/agents/${agentId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(fields),
+    });
+    if (!r.ok) return { ok: false, error: errorDetail(await r.json().catch(() => ({}))) };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
+}
+
+export async function deleteAgent(agentId: string): Promise<void> {
+  const headers = await authHeaders();
+  await fetch(`${API_BASE_URL}/api/agents/${agentId}`, { method: "DELETE", headers });
+}
+
+export async function deleteMeeting(meetingId: string): Promise<void> {
+  const headers = await authHeaders();
+  await fetch(`${API_BASE_URL}/api/meetings/${meetingId}`, { method: "DELETE", headers });
+}

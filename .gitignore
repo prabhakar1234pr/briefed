@@ -6,3 +6,5 @@
 **/.env.local
 .cursor/
 .rocketride/
+.secrets/
+backend-fastapi/.migvenv/

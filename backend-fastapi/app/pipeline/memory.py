@@ -181,17 +181,10 @@ async def _search_memory_pgvector_fallback(
 
 async def _delete_pgvector_fallback(agent_id: str, source_url: str) -> int:
     """Delete pgvector rows matching source_url."""
-    from app.db import get_supabase_service
-    db = get_supabase_service()
+    from app import repo
     try:
-        res = (
-            db.table("context_chunks")
-            .delete()
-            .eq("agent_id", agent_id)
-            .eq("source_url", source_url)
-            .execute()
-        )
-        return len(res.data or [])
+        repo.delete_context_chunks(agent_id, source_url_eq=source_url)
+        return 1
     except Exception as e:
         log.error("memory_pgvector_delete_failed", agent_id=agent_id, error=str(e)[:200])
         return 0

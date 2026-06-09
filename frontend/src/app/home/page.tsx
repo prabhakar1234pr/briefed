@@ -1,21 +1,12 @@
 import Link from "next/link";
 import { requireServerUser } from "@/lib/auth";
-import { getSupabaseDbClient } from "@/lib/supabase";
 
 export default async function HomePage() {
   const user = await requireServerUser("/home");
-  const supabase = await getSupabaseDbClient();
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("full_name")
-    .eq("id", user.uid)
-    .maybeSingle();
-
-  const fullName =
-    profile?.full_name?.trim() ||
-    user.name?.trim() ||
-    "there";
+  // Name comes from the verified session (refreshed on sign-in via
+  // /api/auth/me → backend user provisioning).
+  const fullName = user.name?.trim() || "there";
 
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "48px 28px" }}>

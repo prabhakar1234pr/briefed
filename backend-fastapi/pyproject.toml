@@ -10,7 +10,11 @@ dependencies = [
   "websockets>=12.0",
   "PyJWT",
   "cryptography",
-  "supabase",
+  # Cloud SQL (PostgreSQL) — replaces Supabase
+  "SQLAlchemy>=2.0",
+  "cloud-sql-python-connector[pg8000]>=1.9",
+  "pg8000>=1.31",
+  "google-cloud-storage>=2.16.0",
   "google-cloud-aiplatform>=1.60.0",
   "google-cloud-texttospeech>=2.16.0",
   "vertexai",

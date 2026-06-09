@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiDelete } from "@/lib/server-api";
 import { getServerUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -13,20 +13,10 @@ export async function DELETE(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const supabase = await getSupabaseDbClient();
-
-  // Meetings reference agent_id with ON DELETE SET NULL but column is NOT NULL — remove meetings first.
-  const { error: meetingsErr } = await supabase
-    .from("meetings")
-    .delete()
-    .eq("agent_id", id);
-  if (meetingsErr) {
-    return NextResponse.json({ error: meetingsErr.message }, { status: 400 });
-  }
-
-  const { error } = await supabase.from("agents").delete().eq("id", id);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  // Backend cascades to meetings/context_chunks via FK ON DELETE CASCADE.
+  const res = await serverApiDelete(`/api/agents/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    return NextResponse.json({ error: res.error ?? "Delete failed" }, { status: 400 });
   }
   return NextResponse.json({ ok: true });
 }

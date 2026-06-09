@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiDelete } from "@/lib/server-api";
 import { getServerUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -13,11 +13,9 @@ export async function DELETE(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const supabase = await getSupabaseDbClient();
-
-  const { error } = await supabase.from("meetings").delete().eq("id", id);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  const res = await serverApiDelete(`/api/meetings/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    return NextResponse.json({ error: res.error ?? "Delete failed" }, { status: 400 });
   }
   return NextResponse.json({ ok: true });
 }

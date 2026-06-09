@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { DeleteRowButton } from "@/components/DeleteRowButton";
-import { getSupabaseDbClient } from "@/lib/supabase";
+import { serverApiGet } from "@/lib/server-api";
 import { requireServerUser } from "@/lib/auth";
 import type { MeetingStatus } from "@/types/agents";
+
+type MeetingRow = {
+  id: string;
+  meeting_link: string;
+  status: string;
+  created_at: string;
+  bot_id: string | null;
+};
 
 const statusConfig: Record<MeetingStatus, { dot: string; label: string; tagClass: string }> = {
   scheduled:  { dot: "dot dot-joining", label: "Scheduled",  tagClass: "tag tag-amber" },
@@ -29,12 +37,14 @@ function extractDomain(url: string) {
 
 export default async function MeetingsPage() {
   await requireServerUser("/meetings");
-  const supabase = await getSupabaseDbClient();
-  const { data: meetings, error } = await supabase
-    .from("meetings")
-    .select("id, meeting_link, status, created_at, bot_id")
-    .order("created_at", { ascending: false })
-    .limit(50);
+  let meetings: MeetingRow[] = [];
+  let error: { message: string } | null = null;
+  try {
+    const data = await serverApiGet<{ meetings: MeetingRow[] }>("/api/meetings");
+    meetings = data.meetings ?? [];
+  } catch (e) {
+    error = { message: e instanceof Error ? e.message : "Failed to load meetings" };
+  }
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px" }}>
