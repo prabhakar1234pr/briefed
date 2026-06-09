@@ -159,6 +159,10 @@ class MeetingPipeline:
                 audio_out_enabled=True,
                 audio_out_sample_rate=24000,
                 audio_out_channels=1,
+                # Bigger, steadier chunks (200ms vs the 40ms default) = fewer WS
+                # messages and less jitter for the bot-page's playback scheduler,
+                # which reduces the choppy/breaking audio.
+                audio_out_10ms_chunks=20,
             ),
             websocket=self.session.bot_ws,
         )
@@ -175,6 +179,12 @@ class MeetingPipeline:
                 interim_results=True,
                 punctuate=True,
                 smart_format=True,
+                # Endpointing is what was missing: without it Deepgram waits a
+                # long, conservative time before emitting the FINAL transcript,
+                # which was the entire ~6-12s latency. Finalize ~300ms after the
+                # speaker goes silent; emit an utterance-end event after 1s.
+                endpointing=300,
+                utterance_end_ms=1000,
             ),
         )
 
