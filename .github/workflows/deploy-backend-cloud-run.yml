@@ -58,6 +58,10 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
 
       - name: Deploy to Cloud Run
+        # Other app env vars (RECALL_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY,
+        # FIREBASE_CLIENT_EMAIL/PROJECT_ID, GITHUB_APP_*, CORS_ORIGINS, etc.) are
+        # set directly on the service and persist across deploys (--update-*
+        # merges, not replaces). Secrets live in Secret Manager.
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --source=./backend-fastapi \
@@ -65,6 +69,6 @@ jobs:
             --project=${{ env.PROJECT_ID }} \
             --allow-unauthenticated \
             --add-cloudsql-instances=${{ env.CLOUD_SQL_INSTANCE }} \
-            --update-env-vars=GCP_PROJECT=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }},CLOUD_SQL_CONNECTION_NAME=${{ env.CLOUD_SQL_INSTANCE }},DB_NAME=briefed,DB_USER=postgres,SCREENSHOTS_BUCKET=briefed-42540-screenshots \
-            --update-secrets=DB_PASS=briefed-db-password:latest \
+            --update-env-vars=GCP_PROJECT=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }},CLOUD_SQL_CONNECTION_NAME=${{ env.CLOUD_SQL_INSTANCE }},DB_NAME=briefed,DB_USER=postgres,SCREENSHOTS_BUCKET=briefed-42540-screenshots,PUBLIC_API_BASE=https://backend-fastapi-zl626x3wma-uc.a.run.app \
+            --update-secrets=DB_PASS=briefed-db-password:latest,FIREBASE_PRIVATE_KEY=firebase-private-key:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest \
             --quiet
