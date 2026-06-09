@@ -80,6 +80,23 @@ def get_settings() -> dict[str, str | None]:
         # Supermemory replaces pgvector for unified doc + meeting + code memory
         "supermemory_api_key": os.getenv("SUPERMEMORY_API_KEY", "").strip() or None,
 
+        # ── Nebius (always-on turn-taking gate) ───────────────────────────────
+        # OpenAI-compatible. Cheap Qwen MoE decides if the bot has something worth
+        # saying; on a confident YES the bot raises its hand (it never auto-speaks).
+        "nebius_api_key": os.getenv("NEBIUS_API_KEY", "").strip() or None,
+        "nebius_api_base": (
+            os.getenv("NEBIUS_API_BASE", "https://api.tokenfactory.nebius.com/v1").strip()
+            or "https://api.tokenfactory.nebius.com/v1"
+        ),
+        "nebius_trigger_model": (
+            os.getenv("NEBIUS_TRIGGER_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507").strip()
+            or "Qwen/Qwen3-30B-A3B-Instruct-2507"
+        ),
+        # Confidence above which Bora raises its hand. Parsed to float by the gate.
+        "nebius_speak_threshold": os.getenv("NEBIUS_SPEAK_THRESHOLD", "0.7").strip() or "0.7",
+        # Seconds to keep the hand raised waiting for permission before lowering it.
+        "nebius_hand_timeout": os.getenv("NEBIUS_HAND_TIMEOUT", "20").strip() or "20",
+
         # ── v2 auth (Firebase replaces Clerk) ────────────────────────────────
         "firebase_project_id": os.getenv("FIREBASE_PROJECT_ID", "").strip() or None,
         "firebase_client_email": os.getenv("FIREBASE_CLIENT_EMAIL", "").strip() or None,

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from app import repo
 from app.logger import get_logger
-from app.pipeline.runner import MeetingPipeline
+from app.pipeline.session import get_or_create
 
 log = get_logger(__name__)
 
@@ -62,23 +62,25 @@ async def bot_bridge(
     await websocket.accept()
     log.info("bot_bridge_connected", meeting_id=meeting_id, agent=agent.get("name"))
 
-    # ── Spawn pipeline ───────────────────────────────────────────────────
-    pipeline = MeetingPipeline(
-        meeting_id=meeting_id,
-        agent=agent,
-        websocket=websocket,
-    )
-    await pipeline.start()
+    # ── Attach to the meeting session (output side) ──────────────────────
+    # The session pairs this bot-page output socket with the Recall audio input
+    # socket and starts the Pipecat pipeline once both are present. The bot-page
+    # only carries OUTPUT (TTS bytes) + control messages now; meeting audio
+    # arrives on the separate /ws/recall-audio endpoint.
+    session = get_or_create(meeting_id, agent)
+    await session.attach_bot_ws(websocket)
 
-    # ── Hold the WS open; Pipecat's transport drives the actual I/O ──────
+    # ── Hold the WS open so the bot-page stays connected ─────────────────
+    # The bot-page sends no inbound frames we consume here; we just need to keep
+    # the socket alive (and detect disconnect) while the pipeline writes to it.
     try:
-        # Block until the pipeline task ends. Pipecat's FastAPIWebsocketTransport
-        # reads from the WS internally; we just need to keep this coroutine alive.
-        if pipeline._task is not None:
-            await pipeline._task
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
     except WebSocketDisconnect:
         log.info("bot_bridge_disconnected", meeting_id=meeting_id)
     except Exception as e:
         log.exception("bot_bridge_error", meeting_id=meeting_id, error=str(e)[:200])
     finally:
-        await pipeline.cancel()
+        await session.on_bot_ws_drop()
