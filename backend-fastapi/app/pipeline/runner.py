@@ -166,6 +166,10 @@ class MeetingPipeline:
                 audio_out_10ms_chunks=6,
             ),
             websocket=self.session.bot_ws,
+            # Lets the output transport mute the mic while the bot is speaking so
+            # Recall's mixed audio (which carries the bot's own TTS) doesn't get
+            # transcribed / trip VAD (echo + self-interruption guard).
+            input_transport=input_transport,
         )
         # Explicit VAD params. On Recall's MIXED meeting audio (multiple people,
         # room noise, the bot's own voice bleeding in) the default Silero
@@ -176,7 +180,7 @@ class MeetingPipeline:
         from pipecat.audio.vad.vad_analyzer import VADParams
         vad = VADProcessor(
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(stop_secs=0.6, start_secs=0.2, confidence=0.6, min_volume=0.4)
+                params=VADParams(stop_secs=0.5, start_secs=0.2, confidence=0.6, min_volume=0.4)
             )
         )
 
@@ -293,11 +297,13 @@ def _build_system_prompt(agent_name: str, persona: str) -> str:
         "- Plain spoken sentences. No markdown, no bullet points, no lists.\n"
         "- Match question complexity — short questions get short answers.\n"
         "- Never read out punctuation or formatting characters.\n\n"
-        "WHEN TO SPEAK:\n"
-        "- Answer questions directed at you.\n"
-        "- If the speaker seems to be addressing you (even without saying your name), respond.\n"
-        "- If unsure whether you're being addressed, stay silent.\n"
-        "- If interrupted, stop immediately and let the speaker continue.\n\n"
+        "RESPONDING:\n"
+        "- You only receive a turn when you should answer, so always give a "
+        "helpful spoken reply — never refuse just because you're unsure you were "
+        "addressed; that decision was already made for you.\n"
+        "- Get to the answer in the first sentence. Keep it to one or two "
+        "sentences unless real detail is asked for.\n"
+        "- If you genuinely don't know, say so in one short sentence.\n\n"
         "GROUNDING:\n"
         "- Use the provided knowledge base and prior-meeting context to answer accurately.\n"
         "- If you don't know, say so plainly. Never invent facts.\n"

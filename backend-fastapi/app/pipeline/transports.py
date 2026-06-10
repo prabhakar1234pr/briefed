@@ -77,6 +77,14 @@ class RecallAudioInputTransport(BaseInputTransport):
         self._prestart_overflowed = False
         self._ready = False
         self._frames_in = 0
+        # While the bot is speaking, the OUTPUT transport mutes us so Recall's
+        # MIXED meeting audio (which includes the bot's own TTS bleeding back in)
+        # doesn't get transcribed and either (a) make the bot answer itself or
+        # (b) trip VAD and interrupt the bot mid-sentence (sounds like breakup).
+        self._muted = False
+
+    def set_muted(self, muted: bool) -> None:
+        self._muted = muted
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -95,6 +103,11 @@ class RecallAudioInputTransport(BaseInputTransport):
     async def feed_pcm(self, pcm: bytes) -> None:
         """Called by the Recall audio WS handler with raw PCM16 16k mono bytes."""
         if not pcm:
+            return
+        # Drop meeting audio while the bot is speaking (echo guard). Recall keeps
+        # streaming continuously; dropping here keeps us at real time and stops
+        # the bot from hearing itself.
+        if self._muted:
             return
         self._frames_in += 1
         frame = InputAudioRawFrame(audio=pcm, sample_rate=16000, num_channels=1)
@@ -136,14 +149,32 @@ class RecallAudioInputTransport(BaseInputTransport):
 class BotPageOutputTransport(BaseOutputTransport):
     """Output transport that writes raw PCM16 24k mono to the bot-page WebSocket."""
 
-    def __init__(self, params: TransportParams, websocket: WebSocket, **kwargs):
+    # Re-open the mic this many seconds after the LAST TTS chunk goes out. Covers
+    # the round-trip tail of the bot's own audio (backend → bot-page jitter
+    # buffer → Recall encode/mix → back to us) so we don't transcribe the end of
+    # our own sentence. Kept short so the bot isn't "deaf" long after it stops.
+    _ECHO_TAIL_SECS = 0.6
+
+    def __init__(
+        self,
+        params: TransportParams,
+        websocket: WebSocket,
+        input_transport: "RecallAudioInputTransport | None" = None,
+        **kwargs,
+    ):
         super().__init__(params, **kwargs)
         self._ws = websocket
+        # The INPUT transport we mute while we're playing TTS (echo guard).
+        self._input = input_transport
         # Emulate an audio device clock so we don't blast the whole TTS buffer at
         # the bot-page at once (copied from FastAPIWebsocketOutputTransport).
         self._send_interval = 0.0
         self._next_send_time = 0.0
         self._initialized = False
+        # Echo-mute bookkeeping.
+        self._echo_muted = False
+        self._last_audio_write = 0.0
+        self._unmute_task: asyncio.Task | None = None
 
     def set_websocket(self, websocket: WebSocket) -> None:
         """Swap in a reconnected bot-page socket without rebuilding the pipeline."""
@@ -155,12 +186,18 @@ class BotPageOutputTransport(BaseOutputTransport):
         # halve it so we stay a little ahead of real time (same heuristic as the
         # stock FastAPI output transport).
         if self.sample_rate:
-            # Pace at (just under) real-time. The stock FastAPI transport uses
-            # /2, which is fine for tiny 40ms chunks but at larger chunk sizes
-            # blasts audio at ~2x real-time → the bot-page scheduler overruns
-            # then starves → choppy. Pace at the full chunk duration (×0.9 to
-            # stay slightly ahead so we never underrun).
-            self._send_interval = (self.audio_chunk_size / self.sample_rate) * 0.9
+            # CRITICAL pacing fix. `audio_chunk_size` is in BYTES (Pipecat:
+            # audio_bytes_10ms * audio_out_10ms_chunks), so the TRUE wall-clock
+            # duration of one chunk is bytes / (sample_rate * 2-bytes-per-sample).
+            # The previous code used (chunk_size / sample_rate) * 0.9, which is
+            # ~1.8× the real duration → it sent TTS at ~0.55× real time → the
+            # bot-page AudioContext starved → repeated 150ms jitter-gap fills →
+            # the "broken / static" audio (and a 10s answer stretched to ~18s).
+            # Send a hair FASTER than real time (×0.9) so the bot-page keeps a
+            # small cushion ahead of playback instead of underrunning.
+            bytes_per_sample = 2
+            true_chunk_secs = self.audio_chunk_size / (self.sample_rate * bytes_per_sample)
+            self._send_interval = true_chunk_secs * 0.9
         # CRITICAL: BaseOutputTransport.start() does NOT register the default
         # media sender — set_transport_ready() does. The stock FastAPI transport
         # calls it from start(); we must too, or every TTSAudioRawFrame is
@@ -185,8 +222,33 @@ class BotPageOutputTransport(BaseOutputTransport):
         except Exception as e:
             log.warning("bot_output_send_failed", error=str(e)[:160])
             return False
+        self._note_speaking()
         await self._write_audio_sleep()
         return True
+
+    # ── Echo guard: mute the mic while we're playing audio ─────────────────────
+    def _note_speaking(self) -> None:
+        """Called on every outbound TTS chunk; mutes input and (re)arms unmute."""
+        self._last_audio_write = time.monotonic()
+        if self._input is not None and not self._echo_muted:
+            self._echo_muted = True
+            self._input.set_muted(True)
+        if self._unmute_task is None or self._unmute_task.done():
+            self._unmute_task = asyncio.create_task(self._unmute_watch())
+
+    async def _unmute_watch(self) -> None:
+        """Re-open the mic once no TTS has been sent for _ECHO_TAIL_SECS."""
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                if time.monotonic() - self._last_audio_write >= self._ECHO_TAIL_SECS:
+                    break
+        except asyncio.CancelledError:
+            pass
+        if self._input is not None:
+            self._input.set_muted(False)
+        self._echo_muted = False
+        self._unmute_task = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)

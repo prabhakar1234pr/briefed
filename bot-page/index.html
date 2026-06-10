@@ -236,8 +236,10 @@ function ensureAudioCtx() {
 // Jitter buffer: schedule audio slightly ahead of real time so brief network
 // jitter between chunks never causes an underrun (the "breaking" sound). When
 // we've fallen behind (nextPlayTime < now), restart the cursor a JITTER_LEAD
-// ahead of now instead of exactly at now.
-const JITTER_LEAD = 0.15;  // 150ms cushion
+// ahead of now instead of exactly at now. 200ms cushion absorbs the
+// Cloud-Run → headless-Chrome WS jitter at the start of each reply; the backend
+// now paces TTS at ~real time so mid-reply underruns shouldn't happen at all.
+const JITTER_LEAD = 0.20;  // 200ms cushion
 
 function playPcm16(arrayBuffer) {
   const ctx = ensureAudioCtx();
