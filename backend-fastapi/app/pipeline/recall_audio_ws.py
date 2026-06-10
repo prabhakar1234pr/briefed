@@ -119,13 +119,22 @@ async def recall_audio(
     log.info("recall_audio_connected", meeting_id=meeting_id)
 
     session = get_or_create(meeting_id, agent, bot_id=meeting.get("bot_id"))
-    # Build the input transport standalone so meeting audio can start flowing
-    # even before the bot-page (output socket) has connected. The session pairs
-    # it with the bot-page output transport when both are present.
-    input_transport = RecallAudioInputTransport(
-        TransportParams(audio_in_enabled=True, audio_in_sample_rate=16000, audio_in_passthrough=True)
-    )
-    await session.attach_recall_input(input_transport)
+    # REUSE the existing input transport across reconnects. Recall's audio WS can
+    # drop + reconnect mid-meeting; the running pipeline is wired to the ORIGINAL
+    # transport, so building a new one here would feed a dead end → the bot goes
+    # deaf and stops responding for the rest of the call. Only build one the first
+    # time (so audio can start flowing before the pipeline is even built).
+    input_transport = session.recall_input
+    if input_transport is None:
+        input_transport = RecallAudioInputTransport(
+            TransportParams(audio_in_enabled=True, audio_in_sample_rate=16000, audio_in_passthrough=True)
+        )
+        await session.attach_recall_input(input_transport)
+    else:
+        # Re-arm in case it was left muted by an in-flight echo guard when the old
+        # socket dropped, so the reused transport isn't stuck silent.
+        input_transport.set_muted(False)
+        log.info("recall_audio_reusing_transport", meeting_id=meeting_id)
 
     frames = 0
     try:
