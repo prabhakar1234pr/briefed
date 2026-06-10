@@ -1,0 +1,4 @@
+node_modules/
+*.f32
+*.pcm
+package-lock.json
