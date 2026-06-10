@@ -134,12 +134,21 @@ def setup_logging(level: str = "INFO") -> None:
     root.addHandler(handler)
     root.setLevel(getattr(logging, effective_level, logging.INFO))
 
-    # Quieten noisy libraries — these flood Cloud Run logs
+    # Quieten noisy libraries — these flood Cloud Run logs.
+    # CRITICAL: `websockets` logs EVERY frame at DEBUG (the Deepgram/ElevenLabs
+    # client conns → `> BINARY ... [6400 bytes]`, KeepAlive, PING/PONG). At
+    # ~10-30 lines/sec, when Cloud Logging's stdout pipe backpressures, the
+    # synchronous write blocks the asyncio event loop → meeting audio piles up
+    # in the WS receive buffer → 15-40s STT latency + bursty/choppy TTS output.
+    # Pin it to WARNING regardless of LOG_LEVEL so debugging app code never
+    # reintroduces the per-frame flood.
     for noisy in (
         "httpx", "httpcore", "uvicorn.access", "grpc",
         "hpack", "hpack.hpack", "hpack.table",
         "urllib3", "urllib3.connectionpool",
         "google.auth", "google.auth.transport",
+        "websockets", "websockets.client", "websockets.server",
+        "websocket",
     ):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
