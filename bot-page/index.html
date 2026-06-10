@@ -258,10 +258,11 @@ function playPcm16(arrayBuffer) {
 
   const source = ctx.createBufferSource();
   source.buffer = buf;
-  // Feed BOTH the captured media stream (what Recall hears) and the default
-  // destination (harmless, helps local debugging via Remote DevTools).
+  // Connect to ONLY the captured MediaStream. We used to ALSO connect to
+  // ctx.destination "for debugging" — but Recall captures the whole page's
+  // audio output, so BOTH paths reached the meeting as two slightly-offset
+  // copies → overlapping + comb-filter static. One path = one clean copy.
   source.connect(mediaDest);
-  try { source.connect(ctx.destination); } catch (_) {}
 
   // Schedule chunks sequentially. If we've underrun (cursor fell behind real
   // time), restart with a small cushion so playback doesn't stutter.
