@@ -32,11 +32,13 @@ log = get_logger(__name__)
 _sessions: dict[str, "MeetingSession"] = {}
 
 
-def get_or_create(meeting_id: str, agent: dict[str, Any]) -> "MeetingSession":
+def get_or_create(meeting_id: str, agent: dict[str, Any], bot_id: str | None = None) -> "MeetingSession":
     sess = _sessions.get(meeting_id)
     if sess is None:
-        sess = MeetingSession(meeting_id=meeting_id, agent=agent)
+        sess = MeetingSession(meeting_id=meeting_id, agent=agent, bot_id=bot_id)
         _sessions[meeting_id] = sess
+    elif bot_id and not sess.bot_id:
+        sess.bot_id = bot_id  # fill in once known (native audio injection needs it)
     return sess
 
 
@@ -49,9 +51,10 @@ def remove(meeting_id: str) -> None:
 
 
 class MeetingSession:
-    def __init__(self, *, meeting_id: str, agent: dict[str, Any]):
+    def __init__(self, *, meeting_id: str, agent: dict[str, Any], bot_id: str | None = None):
         self.meeting_id = meeting_id
         self.agent = agent
+        self.bot_id = bot_id  # needed for native Recall audio injection
         self.context = MeetingContext(
             meeting_id=meeting_id,
             agent_id=agent["id"],
@@ -97,8 +100,12 @@ class MeetingSession:
         async with self._lock:
             if self._started or self._tearing_down:
                 return
-            if self.recall_input is None or self.bot_ws is None:
-                return  # wait for both sockets
+            from app.config import get_settings
+            native = (get_settings().get("voice_output_mode") or "recall_native") == "recall_native"
+            if self.recall_input is None:
+                return  # always need the meeting-audio input
+            if not native and self.bot_ws is None:
+                return  # bot-page mode also needs the output socket
             self._started = True
             from app.pipeline.runner import MeetingPipeline  # lazy: avoid import cycle
             self.pipeline = MeetingPipeline(session=self)

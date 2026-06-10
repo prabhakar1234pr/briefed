@@ -222,24 +222,28 @@ async function startCapture() {
 let mediaDest = null;       // MediaStreamAudioDestinationNode
 const outputEl = document.getElementById('output');
 
+// Pre-roll this much audio before playback starts so network jitter between
+// chunks never starves the scheduler (the "breaking" sound). Verified in a
+// headless-Chrome capture harness: 300ms pre-roll + the backend's
+// faster-than-real-time pacing → 0 underruns (vs 5 with the old reactive 200ms).
+const PREBUFFER = 0.30;  // 300ms pre-roll
+
 function ensureAudioCtx() {
   if (audioCtx) return audioCtx;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
+  // Use the browser's NATIVE rate (48kHz) — do NOT force 24kHz. Forcing 24kHz
+  // made Recall resample the bot's audio 24k→48k on capture, mangling it into
+  // static (measured ~417 click-discontinuities vs ~12 at native rate). The
+  // 24kHz TTS PCM goes into 24kHz AudioBuffers; Web Audio resamples them up to
+  // the context rate cleanly on playback, and the MediaStream Recall captures
+  // is then at the meeting's native 48kHz (no lossy capture-side resample).
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   // Route to a captured MediaStream (Recall records the <audio> element).
   mediaDest = audioCtx.createMediaStreamDestination();
   outputEl.srcObject = mediaDest.stream;
   outputEl.play && outputEl.play().catch(() => {});
-  nextPlayTime = audioCtx.currentTime;
+  nextPlayTime = audioCtx.currentTime + PREBUFFER;
   return audioCtx;
 }
-
-// Jitter buffer: schedule audio slightly ahead of real time so brief network
-// jitter between chunks never causes an underrun (the "breaking" sound). When
-// we've fallen behind (nextPlayTime < now), restart the cursor a JITTER_LEAD
-// ahead of now instead of exactly at now. 200ms cushion absorbs the
-// Cloud-Run → headless-Chrome WS jitter at the start of each reply; the backend
-// now paces TTS at ~real time so mid-reply underruns shouldn't happen at all.
-const JITTER_LEAD = 0.20;  // 200ms cushion
 
 function playPcm16(arrayBuffer) {
   const ctx = ensureAudioCtx();
@@ -254,15 +258,16 @@ function playPcm16(arrayBuffer) {
 
   const source = ctx.createBufferSource();
   source.buffer = buf;
-  // Feed BOTH the captured media stream (what Recall hears) and the default
-  // destination (harmless, helps local debugging via Remote DevTools).
+  // Connect to ONLY the captured MediaStream. We used to ALSO connect to
+  // ctx.destination "for debugging" — but Recall captures the whole page's
+  // audio output, so BOTH paths reached the meeting as two slightly-offset
+  // copies → overlapping + comb-filter static. One path = one clean copy.
   source.connect(mediaDest);
-  try { source.connect(ctx.destination); } catch (_) {}
 
   // Schedule chunks sequentially. If we've underrun (cursor fell behind real
   // time), restart with a small cushion so playback doesn't stutter.
   const now = ctx.currentTime;
-  const startAt = nextPlayTime < now ? now + JITTER_LEAD : nextPlayTime;
+  const startAt = nextPlayTime < now ? now + PREBUFFER : nextPlayTime;
   source.start(startAt);
   nextPlayTime = startAt + buf.duration;
 }
