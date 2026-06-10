@@ -252,6 +252,10 @@ class MeetingPipeline:
             context=self.context,
             agent_name=agent_name,
         )
+        # Let the downstream native TTS injector reach the gate to release the
+        # SPEAKING state when a reply completes (the gate is upstream of the LLM
+        # so LLMFullResponseEndFrame never reaches it on its own).
+        self.session.turn_gate = turn_gate
 
         # ── Wire pipeline ──────────────────────────────────────────────────
         pipeline = Pipeline([
