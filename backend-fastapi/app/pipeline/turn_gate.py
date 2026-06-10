@@ -19,8 +19,11 @@ Two paths on a finalized utterance:
 State machine:
 
   IDLE
-    ├─ direct question → release downstream (answer now)            → stays IDLE
-    └─ other utterance → record + async Nebius gate
+    ├─ name address ("Bora, …")  → release downstream (answer now)  → SPEAKING
+    ├─ question (no name)        → addressed-classifier
+    │     ├─ addressed → release downstream (answer now)            → SPEAKING
+    │     └─ not addressed → async Nebius gate (below)
+    └─ statement → record + async Nebius gate
          ├─ wrong_fact/stuck && conf > threshold → raise hand, stash point
          │                                          → HAND_RAISED
          └─ none → stay silent (turn recorded only)
@@ -57,7 +60,7 @@ from app.config import get_settings
 from app.logger import get_logger
 from app.pipeline.context import MeetingContext
 from app.pipeline.nebius_client import evaluate_turn
-from app.pipeline.turn_taking import match_name
+from app.pipeline.turn_taking import classify_addressed, match_name
 
 if TYPE_CHECKING:
     from app.pipeline.session import MeetingSession
@@ -80,6 +83,25 @@ _PERMISSION_PATTERNS = [
     r"\b{name}\b[^.]*\bwhat do you think\b",
     r"\bwhat do you think\b[^.]*\b{name}\b",
 ]
+
+
+# Cheap pre-filter so we only spend a classifier call on utterances that could
+# plausibly be a question for the bot (mirrors turn_taking._question_words).
+_Q_WORDS = {
+    "what", "when", "where", "why", "who", "whom", "whose", "how", "which",
+    "can", "could", "should", "would", "is", "are", "was", "were", "do",
+    "does", "did", "will", "may", "might", "shall", "have", "has", "any",
+}
+
+
+def _looks_like_question(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if t.endswith("?"):
+        return True
+    first = t.split(maxsplit=1)[0].lower().strip(",.!")
+    return first in _Q_WORDS
 
 
 class TurnGate(FrameProcessor):
@@ -161,10 +183,45 @@ class TurnGate(FrameProcessor):
                 await self._grant_permission(frame)
             return
 
-        # IDLE, not a direct question → proactive-interjection gate.
-        if not self._gate_enabled:
-            return  # no gate configured → never interjects proactively
-        self.create_task(self._evaluate(text, frame))
+        # IDLE. Hybrid turn-taking:
+        #   • question-like utterances → addressed-classifier; if it's for us,
+        #     answer immediately (no name needed) — natural back-and-forth.
+        #   • statements → the Nebius proactive gate may RAISE A HAND
+        #     (corrections / unblocking); the bot never auto-speaks on them.
+        if _looks_like_question(text):
+            self.create_task(self._maybe_answer_question(text, frame))
+        elif self._gate_enabled:
+            self.create_task(self._evaluate(text, frame))
+
+    # ── Addressed question → answer (no name required) ─────────────────────────
+    async def _maybe_answer_question(self, text: str, frame: TranscriptionFrame) -> None:
+        """A question was heard while IDLE — answer it if it's directed at us.
+
+        Uses the lightweight Gemini-flash addressed-classifier (~200ms). If it is
+        NOT for us, fall back to the proactive gate (a wrong fact phrased as a
+        question can still raise a hand). Re-checks IDLE before acting because the
+        classifier is async and the meeting may have moved on.
+        """
+        try:
+            recent = await self._context.recent_turns_text(n=8)
+            is_addressed, _conf = await classify_addressed(
+                agent_name=self._agent_name,
+                utterance=text,
+                recent_turns=recent,
+            )
+        except Exception as e:
+            log.warning(
+                "turn_gate_classify_failed",
+                meeting_id=self._session.meeting_id, error=str(e)[:160],
+            )
+            return
+        if self._state != self.IDLE:
+            return  # a direct question or interjection took over meanwhile
+        if is_addressed:
+            log.info("turn_gate_answer_addressed", meeting_id=self._session.meeting_id)
+            await self._answer_now(frame, text)
+        elif self._gate_enabled:
+            await self._evaluate(text, frame)
 
     # ── Direct-question answer (no hand) ──────────────────────────────────────
     async def _answer_now(self, frame: TranscriptionFrame, question: str) -> None:
