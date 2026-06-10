@@ -118,7 +118,7 @@ async def recall_audio(
     await websocket.accept()
     log.info("recall_audio_connected", meeting_id=meeting_id)
 
-    session = get_or_create(meeting_id, agent)
+    session = get_or_create(meeting_id, agent, bot_id=meeting.get("bot_id"))
     # Build the input transport standalone so meeting audio can start flowing
     # even before the bot-page (output socket) has connected. The session pairs
     # it with the bot-page output transport when both are present.

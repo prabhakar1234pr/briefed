@@ -66,6 +66,13 @@ def get_settings() -> dict[str, str | None]:
         "deepgram_api_key": os.getenv("DEEPGRAM_API_KEY", "").strip() or None,
         "deepgram_model": os.getenv("DEEPGRAM_MODEL", "nova-3").strip() or "nova-3",
 
+        # Voice output path: "recall_native" → synthesize the reply as mp3 and let
+        # Recall play it natively into the meeting (clean, no bot-page Web Audio).
+        # "bot_page" → legacy: stream PCM to the GCS bot-page (had static/overlap).
+        "voice_output_mode": (
+            os.getenv("VOICE_OUTPUT_MODE", "recall_native").strip() or "recall_native"
+        ),
+
         # ElevenLabs streaming TTS (replaces Google Cloud TTS for live voice)
         "elevenlabs_api_key": os.getenv("ELEVENLABS_API_KEY", "").strip() or None,
         "elevenlabs_model": os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip() or "eleven_flash_v2_5",

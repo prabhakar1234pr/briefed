@@ -146,31 +146,27 @@ class MeetingPipeline:
         agent_persona = self.agent.get("persona") or ""
         voice_id = self.agent.get("voice_id") or settings["elevenlabs_default_voice"]
 
-        # ── Transports: Recall audio in (session) + bot-page out ───────────
-        # INPUT comes from the Recall audio websocket (already attached to the
-        # session). OUTPUT (TTS) goes to the bot-page websocket. VAD must be an
-        # explicit processor in 1.2.x — params.vad_analyzer is ignored.
+        # ── INPUT: Recall meeting audio (already attached to the session). ──
         input_transport = self.session.recall_input
         if input_transport is None:
             log.error("pipeline_no_input_transport", meeting_id=self.meeting_id)
             return
-        self._output = BotPageOutputTransport(
-            TransportParams(
-                audio_out_enabled=True,
-                audio_out_sample_rate=24000,
-                audio_out_channels=1,
-                # 60ms chunks: small enough that the first audio goes out quickly
-                # (low onset latency) and delivery is smooth, but bigger than the
-                # 40ms default to cut WS message count. Pairs with the corrected
-                # real-time pacing in BotPageOutputTransport.
-                audio_out_10ms_chunks=6,
-            ),
-            websocket=self.session.bot_ws,
-            # Lets the output transport mute the mic while the bot is speaking so
-            # Recall's mixed audio (which carries the bot's own TTS) doesn't get
-            # transcribed / trip VAD (echo + self-interruption guard).
-            input_transport=input_transport,
-        )
+        # OUTPUT path: "recall_native" (default) synthesizes each reply as one mp3
+        # and lets Recall play it natively into the meeting (clean — no bot-page
+        # Web Audio capture/re-encode). "bot_page" is the legacy streaming path.
+        native_mode = (settings.get("voice_output_mode") or "recall_native") == "recall_native"
+        self._output = None
+        if not native_mode:
+            self._output = BotPageOutputTransport(
+                TransportParams(
+                    audio_out_enabled=True,
+                    audio_out_sample_rate=24000,
+                    audio_out_channels=1,
+                    audio_out_10ms_chunks=6,
+                ),
+                websocket=self.session.bot_ws,
+                input_transport=input_transport,
+            )
         # Explicit VAD params. On Recall's MIXED meeting audio (multiple people,
         # room noise, the bot's own voice bleeding in) the default Silero
         # thresholds keep the analyzer in SPEAKING too long, which defers the
@@ -221,14 +217,24 @@ class MeetingPipeline:
             ),
         )
 
-        # ── TTS: ElevenLabs Flash streaming ────────────────────────────────
-        tts = ElevenLabsTTSService(
-            api_key=settings["elevenlabs_api_key"] or "",
-            settings=ElevenLabsTTSService.Settings(
-                voice=voice_id,
-                model=settings.get("elevenlabs_model") or "eleven_flash_v2_5",
-            ),
-        )
+        # ── Voice output processors (sit after the LLM) ────────────────────
+        if native_mode:
+            from app.pipeline.recall_output import NativeTTSInjector
+            voice_tail = [NativeTTSInjector(
+                session=self.session,
+                bot_id=self.session.bot_id or "",
+                voice_id=voice_id,
+            )]
+        else:
+            # Legacy bot-page: stream PCM via ElevenLabs TTS → BotPageOutputTransport.
+            tts = ElevenLabsTTSService(
+                api_key=settings["elevenlabs_api_key"] or "",
+                settings=ElevenLabsTTSService.Settings(
+                    voice=voice_id,
+                    model=settings.get("elevenlabs_model") or "eleven_flash_v2_5",
+                ),
+            )
+            voice_tail = [tts, self._output]
 
         # ── Context: persona + recall composed at first turn ───────────────
         system_prompt = _build_system_prompt(agent_name, agent_persona)
@@ -255,8 +261,7 @@ class MeetingPipeline:
             turn_gate,
             context_aggregator_pair.user(),
             llm,
-            tts,
-            self._output,
+            *voice_tail,
             context_aggregator_pair.assistant(),
         ])
 

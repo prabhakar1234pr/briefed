@@ -700,9 +700,13 @@ async def start_meeting(
     # v2 voice pipeline: full Pipecat brain. Enabled when Deepgram + ElevenLabs
     # keys are configured. Mints a bridge token the bot-page uses to authenticate.
     import secrets as _secrets
-    use_v2 = bool(s.get("deepgram_api_key") and s.get("elevenlabs_api_key") and s.get("bot_page_url"))
-    # NOTE: legacy v1 output_media path is gone — bot-page/index.html is now v2-only.
-    # When v2 keys are missing, fall through to output_audio (backend TTS + MP3 inject).
+    # Native voice (default): Recall plays our synthesized mp3 replies directly
+    # into the meeting — no bot-page. bot_page mode needs a hosted page URL.
+    native_voice = (s.get("voice_output_mode") or "recall_native") == "recall_native"
+    use_v2 = bool(
+        s.get("deepgram_api_key") and s.get("elevenlabs_api_key")
+        and (native_voice or s.get("bot_page_url"))
+    )
     use_output_media = False
     if use_v2:
         copilot_mode = "v2"
@@ -770,9 +774,28 @@ async def start_meeting(
             "send_to": "everyone", "message": _bot_message_from_agent(agent)
         }},
     }
-    if use_v2:
-        # v2: bot-page connects to backend Pipecat over WS for OUTPUT (TTS) only;
-        # meeting audio comes in via the audio_ws_url registered above.
+    if use_v2 and native_voice:
+        # Native Recall audio: Recall plays our synthesized mp3 replies directly
+        # into the meeting (clean — no bot-page Web Audio). The silent bootstrap
+        # enables the /output_audio/ endpoint; a static image is the bot's camera.
+        # Meeting audio still arrives via the audio_ws_url realtime websocket
+        # (registered above) for STT.
+        payload["automatic_audio_output"] = {
+            "in_call_recording": {"data": {"kind": "mp3", "b64_data": copilot_bootstrap_mp3_b64()}}
+        }
+        img = agent.get("bot_image_url")
+        if isinstance(img, str) and img.strip():
+            try:
+                b64 = await recall.fetch_image_b64_for_video(img.strip())
+                if b64:
+                    payload["automatic_video_output"] = {
+                        "in_call_recording": {"kind": "jpeg", "b64_data": b64}
+                    }
+            except Exception:
+                log.warning("bot_image_fetch_failed", agent_id=body.agent_id)
+        log.info("v2_native_audio_configured", meeting_id=meeting_row_id)
+    elif use_v2:
+        # Legacy bot-page: render a webpage as the camera; it streams TTS PCM in.
         from urllib.parse import urlencode
         import time as _time
         page_params = urlencode({

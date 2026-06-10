@@ -52,7 +52,7 @@ def _fake_get_meeting(meeting_id, user_id=None):
         "id": meeting_id,
         "agent_id": AGENT_ID,
         "bridge_token": TOKEN,
-        "bot_id": None,
+        "bot_id": "test-bot-id",
         "copilot_mode": "v2",
         "status": "in_call",
     }
@@ -70,6 +70,24 @@ def _fake_get_agent(agent_id, user_id=None):
 
 repo.get_meeting = _fake_get_meeting
 repo.get_agent = _fake_get_agent
+
+# Intercept Recall audio injection → save the mp3 ElevenLabs produced so the test
+# can verify it's clean (instead of POSTing to a real bot). tts_to_mp3 still runs
+# for real, so this exercises the full native-output path end to end.
+import tempfile, time  # noqa: E402
+import app.pipeline.recall_output as _ro  # noqa: E402
+
+_INJECT_DIR = Path(tempfile.gettempdir())
+
+
+async def _fake_inject_audio(bot_id, mp3_bytes):
+    p = _INJECT_DIR / f"native_inject_{int(time.time() * 1000)}.mp3"
+    p.write_bytes(mp3_bytes)
+    print(f"[native-inject] bot={bot_id} saved {p} ({len(mp3_bytes)} bytes)")
+    return True
+
+
+_ro.inject_audio = _fake_inject_audio
 
 
 def _warm_imports() -> None:
