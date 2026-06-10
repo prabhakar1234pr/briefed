@@ -63,6 +63,10 @@ class MeetingSession:
         self.recall_input: RecallAudioInputTransport | None = None
         self.bot_ws: WebSocket | None = None
         self.pipeline: Any = None  # MeetingPipeline (lazy import to avoid cycle)
+        # The live TurnGate (set by runner._run). The native TTS injector calls
+        # back into it to clear the SPEAKING state when a reply finishes, since
+        # the gate sits UPSTREAM of the LLM and never sees LLMFullResponseEndFrame.
+        self.turn_gate: Any = None
         self._started = False
         self._tearing_down = False
         self._lock = asyncio.Lock()

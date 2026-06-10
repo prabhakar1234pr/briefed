@@ -97,32 +97,54 @@ class NativeTTSInjector(FrameProcessor):
         await self.push_frame(frame, direction)
 
     async def _speak(self, text: str) -> None:
-        if not self._api_key or not self._bot_id:
-            log.warning("native_tts_skipped", has_key=bool(self._api_key), has_bot=bool(self._bot_id))
-            return
         try:
-            mp3 = await tts_to_mp3(text, self._voice_id, self._model, self._api_key)
-        except Exception as e:
-            log.warning("native_tts_failed", meeting_id=self._session.meeting_id, error=str(e)[:160])
-            return
-        if not mp3:
-            return
-        # Echo guard: mute meeting-audio input while Recall plays the clip, so the
-        # bot doesn't transcribe its own voice (which loops back via audio_mixed).
-        self._mute_input(True)
-        ok = await inject_audio(self._bot_id, mp3)
-        log.info(
-            "native_audio_injected",
-            meeting_id=self._session.meeting_id,
-            chars=len(text), mp3_kb=round(len(mp3) / 1024, 1), ok=ok,
-        )
-        # Re-open the mic after the estimated clip duration (+tail). ElevenLabs
-        # speaks ~14 chars/sec; floor at 1.5s. We can't get exact duration from
-        # the mp3 cheaply, so estimate generously.
-        est = max(1.5, len(text) * 0.075) + 0.8
-        if self._unmute_task and not self._unmute_task.done():
-            self._unmute_task.cancel()
-        self._unmute_task = self.create_task(self._unmute_after(est))
+            if not self._api_key or not self._bot_id:
+                log.warning("native_tts_skipped", has_key=bool(self._api_key), has_bot=bool(self._bot_id))
+                return
+            try:
+                mp3 = await tts_to_mp3(text, self._voice_id, self._model, self._api_key)
+            except Exception as e:
+                log.warning("native_tts_failed", meeting_id=self._session.meeting_id, error=str(e)[:160])
+                return
+            if not mp3:
+                return
+            # Echo guard: mute meeting-audio input while Recall plays the clip, so
+            # the bot doesn't transcribe its own voice (loops back via audio_mixed).
+            self._mute_input(True)
+            try:
+                ok = await inject_audio(self._bot_id, mp3)
+            except Exception as e:
+                # CRITICAL: if the inject POST fails we must re-open the mic, or the
+                # input stays muted forever and the bot goes permanently deaf.
+                log.warning("native_inject_failed", meeting_id=self._session.meeting_id, error=str(e)[:160])
+                self._mute_input(False)
+                return
+            log.info(
+                "native_audio_injected",
+                meeting_id=self._session.meeting_id,
+                chars=len(text), mp3_kb=round(len(mp3) / 1024, 1), ok=ok,
+            )
+            # Re-open the mic after the estimated clip duration (+tail). ElevenLabs
+            # speaks ~14 chars/sec; floor at 1.5s. We can't get exact duration from
+            # the mp3 cheaply, so estimate generously.
+            est = max(1.5, len(text) * 0.075) + 0.8
+            if self._unmute_task and not self._unmute_task.done():
+                self._unmute_task.cancel()
+            self._unmute_task = self.create_task(self._unmute_after(est))
+        finally:
+            # Release the TurnGate's SPEAKING state on EVERY path (success, skip,
+            # synth/inject failure). The gate is upstream of the LLM so it never
+            # sees LLMFullResponseEndFrame; without this it deadlocks in SPEAKING
+            # after the first reply and the bot stops answering. See turn_gate.py.
+            self._release_gate()
+
+    def _release_gate(self) -> None:
+        gate = getattr(self._session, "turn_gate", None)
+        if gate is not None:
+            try:
+                gate.notify_response_complete()
+            except Exception:
+                pass
 
     async def _unmute_after(self, secs: float) -> None:
         try:

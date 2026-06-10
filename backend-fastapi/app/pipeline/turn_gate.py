@@ -135,6 +135,13 @@ class TurnGate(FrameProcessor):
         self._state = self.IDLE
         self._pending_point: str | None = None
         self._timeout_task: asyncio.Task | None = None
+        # Backstop watchdog: the gate leaves SPEAKING when the reply finishes
+        # (signalled by the downstream injector via notify_response_complete).
+        # If that signal is ever missed — pipeline error, interruption, legacy
+        # bot-page mode — this forces IDLE so the gate can never deadlock and go
+        # permanently mute. Generous so it never cuts a legitimately long reply.
+        self._speaking_watchdog: asyncio.Task | None = None
+        self._speaking_max_secs = 30.0
         self._permission_res = [
             re.compile(p.replace("{name}", re.escape(agent_name)), re.IGNORECASE)
             for p in _PERMISSION_PATTERNS
@@ -154,11 +161,52 @@ class TurnGate(FrameProcessor):
             await self._on_final_transcript(frame)
             return  # suppress; we decide if/when to re-emit downstream
 
-        # Lower the hand once the bot has finished its answer.
+        # Lower the hand once the bot has finished its answer. NOTE: this gate
+        # sits UPSTREAM of the LLM, so LLMFullResponseEndFrame (pushed downstream)
+        # normally never reaches here — the real reset comes from
+        # notify_response_complete() below. This stays as a harmless extra path.
         if isinstance(frame, LLMFullResponseEndFrame) and self._state == self.SPEAKING:
             await self._finish_speaking()
 
         await self.push_frame(frame, direction)
+
+    # ── Reply-complete signal (from the downstream native TTS injector) ────────
+    def notify_response_complete(self) -> None:
+        """Called by the downstream injector when a reply finishes synthesizing.
+
+        The gate is UPSTREAM of the LLM, so the LLMFullResponseEndFrame that
+        would reset its state travels downstream and never reaches it. Without
+        this, the gate stays stuck in SPEAKING after the first answer and
+        silently drops every later (non name-addressed) utterance → the bot goes
+        mute. Safe to call from another processor's task.
+        """
+        if self._state == self.SPEAKING:
+            self.create_task(self._finish_speaking())
+
+    # ── SPEAKING watchdog ──────────────────────────────────────────────────────
+    def _arm_speaking_watchdog(self) -> None:
+        if self._speaking_watchdog and not self._speaking_watchdog.done():
+            self._speaking_watchdog.cancel()
+        self._speaking_watchdog = self.create_task(self._speaking_watchdog_run())
+
+    def _cancel_speaking_watchdog(self) -> None:
+        if self._speaking_watchdog and not self._speaking_watchdog.done():
+            self._speaking_watchdog.cancel()
+        self._speaking_watchdog = None
+
+    async def _speaking_watchdog_run(self) -> None:
+        try:
+            await asyncio.sleep(self._speaking_max_secs)
+        except asyncio.CancelledError:
+            return
+        if self._state == self.SPEAKING:
+            log.warning("turn_gate_speaking_watchdog_reset", meeting_id=self._session.meeting_id)
+            await self._finish_speaking()
+
+    def _enter_speaking(self) -> None:
+        self._state = self.SPEAKING
+        self._session.push_control({"type": "bot_state", "speaking": True})
+        self._arm_speaking_watchdog()
 
     async def _on_final_transcript(self, frame: TranscriptionFrame) -> None:
         text = (frame.text or "").strip()
@@ -225,8 +273,7 @@ class TurnGate(FrameProcessor):
 
     # ── Direct-question answer (no hand) ──────────────────────────────────────
     async def _answer_now(self, frame: TranscriptionFrame, question: str) -> None:
-        self._state = self.SPEAKING
-        self._session.push_control({"type": "bot_state", "speaking": True})
+        self._enter_speaking()
         out = TranscriptionFrame(
             text=question,
             user_id=getattr(frame, "user_id", "") or "speaker",
@@ -287,8 +334,7 @@ class TurnGate(FrameProcessor):
         if self._timeout_task:
             self._timeout_task.cancel()
             self._timeout_task = None
-        self._state = self.SPEAKING
-        self._session.push_control({"type": "bot_state", "speaking": True})
+        self._enter_speaking()
         # Speak the specific correction/help the gate flagged, grounded in the
         # recent conversation (the gate already considered the KB to decide).
         try:
@@ -312,6 +358,7 @@ class TurnGate(FrameProcessor):
         await self.push_frame(out, FrameDirection.DOWNSTREAM)
 
     async def _finish_speaking(self) -> None:
+        self._cancel_speaking_watchdog()
         self._state = self.IDLE
         self._pending_point = None
         self._session.push_control({"type": "hand", "raised": False})
