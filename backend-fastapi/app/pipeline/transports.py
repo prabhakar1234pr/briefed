@@ -33,6 +33,7 @@ app/pipeline/runner.py from the session's bot-page socket.
 """
 from __future__ import annotations
 
+import array
 import asyncio
 import time
 
@@ -68,6 +69,20 @@ class RecallAudioInputTransport(BaseInputTransport):
     # the OLDEST so the bot hears the most recent speech, and log once.
     _PRESTART_MAX = 3000
 
+    # ── Silence shedding (keeps the STT path at real time) ────────────────────
+    # Recall streams meeting audio CONTINUOUSLY, including pure-silence frames.
+    # The consumer (Silero VAD + Deepgram send) runs a touch under real time, so
+    # over a long meeting the queue accrues tens of seconds of latency → the
+    # 15-40s STT TTFB seen in prod. We drop silence under backlog so only speech
+    # (plus a little context) flows. Peak amplitude (int16) below this = silence.
+    _SILENCE_PEAK = 500
+    # Forward this many silent frames after speech before shedding, so Deepgram
+    # still sees the trailing silence it needs to endpoint/finalize (~200ms each).
+    _KEEP_TRAILING_SILENCE = 5
+    # Start shedding silence once the audio-in queue is deeper than this
+    # (~200ms/frame → ~0.6s of buffer). Bounds STT latency to well under 1s.
+    _QUEUE_SOFT_LIMIT = 3
+
     def __init__(self, params: TransportParams, **kwargs):
         super().__init__(params, **kwargs)
         # Frames that arrive before the pipeline has started (and thus before
@@ -82,9 +97,27 @@ class RecallAudioInputTransport(BaseInputTransport):
         # doesn't get transcribed and either (a) make the bot answer itself or
         # (b) trip VAD and interrupt the bot mid-sentence (sounds like breakup).
         self._muted = False
+        # Silence-shedding state.
+        self._silence_run = 0
+        self._pending_preroll: bytes | None = None
 
     def set_muted(self, muted: bool) -> None:
         self._muted = muted
+
+    @staticmethod
+    def _is_silent(pcm: bytes) -> bool:
+        """True if the 16-bit PCM frame's peak amplitude is below the silence
+        floor. Uses stdlib `array` (C-level min/max); x86 is little-endian so
+        this reads Recall's S16LE bytes correctly. Fails safe (never shed)."""
+        try:
+            samples = array.array("h")
+            samples.frombytes(pcm[: len(pcm) // 2 * 2])
+            if not samples:
+                return True
+            thr = RecallAudioInputTransport._SILENCE_PEAK
+            return max(samples) < thr and min(samples) > -thr
+        except Exception:
+            return False
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -109,6 +142,30 @@ class RecallAudioInputTransport(BaseInputTransport):
         # the bot from hearing itself.
         if self._muted:
             return
+
+        # ── Silence shedding ──────────────────────────────────────────────────
+        # The #1 cause of the 15-40s STT latency: the consumer runs slightly
+        # under real time, so continuous meeting audio (mostly silence) piles up.
+        # Forward all speech + a tail of silence (for Deepgram endpointing); once
+        # we've been silent a while AND the queue is backing up, shed silence to
+        # snap back to real time. Keep one shed frame as pre-roll so we never
+        # clip the next speech onset.
+        q = getattr(self, "_audio_in_queue", None)
+        qsize = q.qsize() if q is not None else 0
+        if self._is_silent(pcm):
+            self._silence_run += 1
+            if self._silence_run > self._KEEP_TRAILING_SILENCE and qsize > self._QUEUE_SOFT_LIMIT:
+                self._pending_preroll = pcm
+                return
+        else:
+            self._silence_run = 0
+            if self._pending_preroll is not None:
+                pr, self._pending_preroll = self._pending_preroll, None
+                if self._ready:
+                    await self.push_audio_frame(
+                        InputAudioRawFrame(audio=pr, sample_rate=16000, num_channels=1)
+                    )
+
         self._frames_in += 1
         frame = InputAudioRawFrame(audio=pcm, sample_rate=16000, num_channels=1)
         if not self._ready:
